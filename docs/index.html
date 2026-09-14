@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"
+    />
+    <title>Gym Planner</title>
+
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#12151c" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="Gym" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+    <link rel="icon" href="icons/icon-192.png" />
+
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1 id="topbar-title">Train</h1>
+      <span id="topbar-note" class="topbar-note"></span>
+    </header>
+
+    <main id="main">
+      <!-- ------------------------------------------------ Train -->
+      <section id="view-train" class="view">
+        <div id="train-idle" class="stack">
+          <div class="card">
+            <h2>Start a workout</h2>
+            <p class="muted">
+              Pick a plan, or train freestyle and add exercises as you go.
+            </p>
+            <div id="start-plans" class="stack tight"></div>
+            <button class="btn ghost" data-action="start-freestyle">
+              Freestyle session
+            </button>
+          </div>
+          <div id="stats" class="card"></div>
+        </div>
+
+        <div id="train-active" class="stack" hidden>
+          <div class="card session-head">
+            <div>
+              <h2 id="session-name"></h2>
+              <span class="muted" id="session-meta"></span>
+            </div>
+            <button class="btn danger small" data-action="finish">
+              Finish
+            </button>
+          </div>
+          <div id="exercise-list" class="stack"></div>
+          <button class="btn ghost" data-action="add-exercise">
+            + Add exercise
+          </button>
+          <button class="btn subtle" data-action="discard">
+            Discard session
+          </button>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ Plans -->
+      <section id="view-plans" class="view" hidden>
+        <div id="plan-list" class="stack"></div>
+        <button class="btn" data-action="new-plan">+ New plan</button>
+      </section>
+
+      <!-- ------------------------------------------------ History -->
+      <section id="view-history" class="view" hidden>
+        <div class="card data-tools">
+          <h2>Data backup</h2>
+          <p class="muted">Your workouts live only on this phone. Export sends a
+            backup file to the share sheet &mdash; pick Google Drive. Import restores
+            one (choose Drive in the file picker).</p>
+          <p class="muted" id="backup-status"></p>
+          <div class="row" style="margin-top:12px">
+            <button class="btn small ghost" data-action="export-data">Export data</button>
+            <button class="btn small ghost" data-action="import-data">Import data</button>
+          </div>
+          <input id="import-file" type="file" hidden>
+        </div>
+        <div id="history-list" class="stack"></div>
+      </section>
+    </main>
+
+    <nav class="tabbar">
+      <button class="tab active" data-view="train">
+        <span class="tab-icon">&#9679;</span><span>Train</span>
+      </button>
+      <button class="tab" data-view="plans">
+        <span class="tab-icon">&#9635;</span><span>Plans</span>
+      </button>
+      <button class="tab" data-view="history">
+        <span class="tab-icon">&#9201;</span><span>History</span>
+      </button>
+    </nav>
+
+    <!-- Bottom sheet used for every picker and form on this screen size. -->
+    <div id="sheet" class="sheet-backdrop" hidden>
+      <div class="sheet" role="dialog" aria-modal="true">
+        <div class="sheet-head">
+          <h2 id="sheet-title"></h2>
+          <button class="btn subtle small" data-action="close-sheet">
+            Close
+          </button>
+        </div>
+        <div id="sheet-body" class="sheet-body"></div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
