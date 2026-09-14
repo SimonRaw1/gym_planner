@@ -168,7 +168,7 @@ async function api(path, options = {}) {
     result = session ? sessionDetail(data, session.id) : null;
   } else if (path === "/sessions" && method === "POST") {
     const plan = data.plans.find((item) => item.id === body.plan_id);
-    const session = { id: data.nextIds.session++, plan_id: body.plan_id || null, name: body.name?.trim() || plan?.name || "Freestyle", started_at: nowTs(), finished_at: null, notes: "", sets: [] };
+    const session = { id: data.nextIds.session++, plan_id: body.plan_id || null, name: body.name?.trim() || plan?.name || "New session", started_at: nowTs(), finished_at: null, notes: "", sets: [] };
     data.sessions.push(session); result = sessionDetail(data, session.id);
   } else if ((match(/^\/sessions\/(\d+)$/)) && method === "GET") result = sessionDetail(data, Number(match(/^\/sessions\/(\d+)$/)[1]));
   else if ((match(/^\/sessions\/(\d+)\/sets$/)) && method === "POST") {
@@ -698,14 +698,14 @@ const actions = {
       openSheet('Name your session', `
         <div class="stack">
           <div><label for="freestyle-name">Session name</label>
-            <input id="freestyle-name" value="Freestyle" placeholder="Freestyle" maxlength="80" autofocus></div>
+            <input id="freestyle-name" value="" placeholder="e.g. Upper body" maxlength="80" autofocus></div>
           <button class="btn" data-action="begin-freestyle">Start session</button>
         </div>`);
       $('#freestyle-name').focus();
     },
 
     async "begin-freestyle"() {
-      const name = $('#freestyle-name').value.trim() || 'Freestyle';
+      const name = $('#freestyle-name').value.trim() || 'New session';
       state.session = await api('/sessions', { method: 'POST', body: { plan_id: null, name } });
       closeSheet();
     renderTrain();
