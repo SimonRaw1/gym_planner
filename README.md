@@ -38,6 +38,10 @@ The History tab shows when you last exported.
   what you managed last time, and a log box (weight, reps, RPE). Logging a set
   starts the rest timer in the header. An unfinished session is kept, so you can
   lock the phone or close the app and pick up where you were.
+- **Reorder or remove exercises** — press the &#8942;&#8942; grip on an exercise
+  (in a workout or the plan editor) and drag. Drop it where you want it, or onto
+  the trash bin that appears at the bottom to delete it. Removing an exercise
+  from a workout also removes the sets logged for it, after asking.
 - **Plans** — a plan is a named, ordered list of exercises with target sets,
   reps, weight and rest. Editing a plan never touches workouts already logged.
 - **History** — past sessions with set count and total volume; tap one to see

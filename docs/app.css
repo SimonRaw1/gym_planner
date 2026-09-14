@@ -426,3 +426,88 @@ label {
     margin-inline: auto;
   }
 }
+
+/* ------------------------------------------------------------ drag to sort */
+
+.drag-handle {
+  appearance: none;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 44px;
+  margin: -8px 0 -8px -8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+body.dragging,
+body.dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.drag-ghost {
+  position: fixed;
+  z-index: 40;
+  margin: 0;
+  pointer-events: none;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  border-color: var(--accent-dim) !important;
+  opacity: 0.95;
+  transition: opacity 0.12s, border-color 0.12s;
+}
+.drag-ghost.doomed {
+  border-color: var(--danger) !important;
+  opacity: 0.6;
+}
+
+.drag-placeholder {
+  border: 2px dashed var(--line);
+  border-radius: var(--radius);
+}
+
+.trash {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: calc(var(--tabbar-h) + 30px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: rgba(40, 18, 22, 0.96);
+  border-top: 2px dashed rgba(255, 95, 95, 0.5);
+  color: var(--danger);
+  font-weight: 600;
+  animation: trash-in 0.15s ease-out;
+  transition: background 0.12s;
+}
+.trash.armed {
+  background: var(--danger);
+  border-top-color: var(--danger);
+  color: #fff;
+}
+.trash.armed svg {
+  transform: scale(1.2);
+}
+.trash svg {
+  transition: transform 0.12s;
+}
+
+@keyframes trash-in {
+  from {
+    transform: translateY(100%);
+  }
+}

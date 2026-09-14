@@ -95,24 +95,41 @@ function bodyOf(options) {
   return typeof options.body === "string" ? JSON.parse(options.body) : (options.body || {});
 }
 
-function sessionDetail(data, id) {
-  const session = data.sessions.find((item) => item.id === id);
-  if (!session) throw new Error("Session not found");
+const ITEM_FIELDS = ["exercise_id", "target_sets", "target_reps", "target_weight", "rest_seconds"];
+const plainItem = (item) => Object.fromEntries(ITEM_FIELDS.map((key) => [key, item[key]]));
+const blankItem = (exerciseId) => ({
+  exercise_id: exerciseId, target_sets: 0, target_reps: 0, target_weight: null, rest_seconds: 90,
+});
+
+/** A session's exercise list, in order. Sessions store their own list; ones
+ * logged before that existed fall back to their plan, then their sets. */
+function sessionItems(data, session) {
   const plan = data.plans.find((item) => item.id === session.plan_id);
-  const items = plan
-    ? plan.items.map((item) => ({ ...item, ...data.exercises.find((e) => e.id === item.exercise_id) }))
-    : [...new Set(session.sets.map((set) => set.exercise_id))].map((exerciseId) => ({
-      exercise_id: exerciseId, target_sets: 0, target_reps: 0, target_weight: null,
-      rest_seconds: 90, ...data.exercises.find((e) => e.id === exerciseId),
-    }));
-  const planned = new Set(items.map((item) => item.exercise_id));
+  const items = session.items
+    ? session.items.map(plainItem)
+    : plan
+      ? plan.items.map(plainItem)
+      : [];
+  const listed = new Set(items.map((item) => item.exercise_id));
   session.sets.forEach((set) => {
-    if (!planned.has(set.exercise_id)) {
-      planned.add(set.exercise_id);
-      items.push({ exercise_id: set.exercise_id, target_sets: 0, target_reps: 0,
-        target_weight: null, rest_seconds: 90, ...data.exercises.find((e) => e.id === set.exercise_id) });
+    if (!listed.has(set.exercise_id)) {
+      listed.add(set.exercise_id);
+      items.push(blankItem(set.exercise_id));
     }
   });
+  return items;
+}
+
+function findSession(data, id) {
+  const session = data.sessions.find((item) => item.id === Number(id));
+  if (!session) throw new Error("Session not found");
+  return session;
+}
+
+function sessionDetail(data, id) {
+  const session = findSession(data, id);
+  const items = sessionItems(data, session)
+    .map((item) => ({ ...item, ...data.exercises.find((e) => e.id === item.exercise_id) }));
   const previous = {};
   items.forEach((item) => {
     const previousSet = data.sessions
@@ -168,9 +185,27 @@ async function api(path, options = {}) {
     result = session ? sessionDetail(data, session.id) : null;
   } else if (path === "/sessions" && method === "POST") {
     const plan = data.plans.find((item) => item.id === body.plan_id);
-    const session = { id: data.nextIds.session++, plan_id: body.plan_id || null, name: body.name?.trim() || plan?.name || "New session", started_at: nowTs(), finished_at: null, notes: "", sets: [] };
+    const session = { id: data.nextIds.session++, plan_id: body.plan_id || null, name: body.name?.trim() || plan?.name || "New session", started_at: nowTs(), finished_at: null, notes: "", items: (plan?.items || []).map(plainItem), sets: [] };
     data.sessions.push(session); result = sessionDetail(data, session.id);
   } else if ((match(/^\/sessions\/(\d+)$/)) && method === "GET") result = sessionDetail(data, Number(match(/^\/sessions\/(\d+)$/)[1]));
+  else if ((match(/^\/sessions\/(\d+)\/items$/)) && method === "POST") {
+    const session = findSession(data, match(/^\/sessions\/(\d+)\/items$/)[1]);
+    session.items = sessionItems(data, session);
+    if (!session.items.some((item) => item.exercise_id === body.exercise_id)) session.items.push(blankItem(body.exercise_id));
+    result = sessionDetail(data, session.id);
+  } else if ((match(/^\/sessions\/(\d+)\/items$/)) && method === "PUT") {
+    const session = findSession(data, match(/^\/sessions\/(\d+)\/items$/)[1]);
+    const items = sessionItems(data, session);
+    const rank = new Map(body.exercise_ids.map((exerciseId, i) => [exerciseId, i]));
+    session.items = items.sort((a, b) => (rank.get(a.exercise_id) ?? Infinity) - (rank.get(b.exercise_id) ?? Infinity));
+    result = sessionDetail(data, session.id);
+  } else if ((match(/^\/sessions\/(\d+)\/items\/(\d+)$/)) && method === "DELETE") {
+    const [, sessionId, exerciseId] = match(/^\/sessions\/(\d+)\/items\/(\d+)$/).map(Number);
+    const session = findSession(data, sessionId);
+    session.items = sessionItems(data, session).filter((item) => item.exercise_id !== exerciseId);
+    session.sets = session.sets.filter((set) => set.exercise_id !== exerciseId);
+    result = sessionDetail(data, session.id);
+  }
   else if ((match(/^\/sessions\/(\d+)\/sets$/)) && method === "POST") {
     const session = data.sessions.find((item) => item.id === Number(match(/^\/sessions\/(\d+)\/sets$/)[1]));
     if (!session) throw new Error("Session not found");
@@ -272,6 +307,173 @@ function closeSheet() {
   document.body.style.overflow = "";
   state.draft = null;
 }
+
+// ------------------------------------------------------------ drag to sort
+
+/* Press a grip handle and drag: other cards make room where it would land,
+ * and a trash bin appears at the bottom of the screen. Dropping on the bin
+ * calls onDelete(index); dropping anywhere else calls onMove(from, to).
+ * Pointer events cover touch and mouse; the handle has touch-action: none so
+ * the page doesn't scroll instead. */
+
+let drag = null;
+
+function dragItems(list) {
+  return Array.from(list.children).filter((node) => node.matches("[data-drag-item]"));
+}
+
+document.addEventListener("pointerdown", (ev) => {
+  const handle = ev.target.closest("[data-drag-handle]");
+  if (!handle || drag || ev.button > 0) return;
+  const item = handle.closest("[data-drag-item]");
+  const list = item.parentElement;
+  const config = dragConfig[list.dataset.dragList];
+  if (!config) return;
+  ev.preventDefault();
+
+  const rect = item.getBoundingClientRect();
+  const ghost = item.cloneNode(true);
+  ghost.classList.add("drag-ghost");
+  Object.assign(ghost.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px` });
+  const placeholder = document.createElement("div");
+  placeholder.className = "drag-placeholder";
+  placeholder.style.height = `${rect.height}px`;
+  item.before(placeholder);
+  item.hidden = true;
+  document.body.append(ghost);
+  $("#toast").hidden = true;
+  $("#trash").hidden = false;
+  document.body.classList.add("dragging");
+
+  drag = {
+    config, list, item, ghost, placeholder, pointerId: ev.pointerId,
+    from: dragItems(list).indexOf(item),
+    offsetY: ev.clientY - rect.top, y: ev.clientY, overTrash: false,
+    scroller: list.closest(".sheet-body"),
+    frame: requestAnimationFrame(autoScroll),
+  };
+  buzz(15);
+});
+
+document.addEventListener("pointermove", (ev) => {
+  if (!drag || ev.pointerId !== drag.pointerId) return;
+  drag.y = ev.clientY;
+  positionDrag();
+});
+
+function positionDrag() {
+  const { ghost, list, item, placeholder, y } = drag;
+  // Vertical only: the card stays inside the screen while it moves.
+  ghost.style.transform = `translateY(${y - drag.offsetY - parseFloat(ghost.style.top)}px)`;
+
+  const trash = $("#trash");
+  const overTrash = y >= trash.getBoundingClientRect().top;
+  if (overTrash !== drag.overTrash) {
+    drag.overTrash = overTrash;
+    trash.classList.toggle("armed", overTrash);
+    ghost.classList.toggle("doomed", overTrash);
+    if (overTrash) buzz(25);
+  }
+  if (overTrash) return;
+
+  const others = dragItems(list).filter((node) => node !== item);
+  const before = others.find((node) => {
+    const r = node.getBoundingClientRect();
+    return y < r.top + r.height / 2;
+  });
+  if (before) {
+    if (placeholder.nextElementSibling !== before) before.before(placeholder);
+  } else if (others.length) {
+    others[others.length - 1].after(placeholder);
+  }
+}
+
+/** Scroll the list while the finger sits near the top or just above the bin. */
+function autoScroll() {
+  if (!drag) return;
+  const box = drag.scroller
+    ? drag.scroller.getBoundingClientRect()
+    : { top: $(".topbar").getBoundingClientRect().bottom, bottom: window.innerHeight };
+  const bottom = Math.min(box.bottom, $("#trash").getBoundingClientRect().top);
+  const zone = 70;
+  let speed = 0;
+  if (drag.y < box.top + zone) speed = -Math.ceil((box.top + zone - drag.y) / 6);
+  else if (drag.y > bottom - zone && drag.y < bottom) speed = Math.ceil((drag.y - (bottom - zone)) / 6);
+  if (speed) {
+    if (drag.scroller) drag.scroller.scrollTop += speed;
+    else window.scrollBy(0, speed);
+    positionDrag();
+  }
+  drag.frame = requestAnimationFrame(autoScroll);
+}
+
+function endDrag(ev) {
+  if (!drag || ev.pointerId !== drag.pointerId) return;
+  const { config, list, item, ghost, placeholder, from, overTrash } = drag;
+  cancelAnimationFrame(drag.frame);
+  const to = Array.from(list.children)
+    .filter((node) => node === placeholder || (node.matches("[data-drag-item]") && node !== item))
+    .indexOf(placeholder);
+  ghost.remove();
+  placeholder.remove();
+  item.hidden = false;
+  $("#trash").hidden = true;
+  $("#trash").classList.remove("armed");
+  document.body.classList.remove("dragging");
+  drag = null;
+
+  if (ev.type === "pointercancel") return;
+  const run = overTrash ? config.onDelete(from) : to !== from ? config.onMove(from, to) : null;
+  Promise.resolve(run).catch((err) => toast(err.message));
+}
+
+document.addEventListener("pointerup", endDrag);
+document.addEventListener("pointercancel", endDrag);
+
+// iOS shows a copy/lookup menu on a long press unless this is stopped.
+document.addEventListener("contextmenu", (ev) => {
+  if (drag || ev.target.closest("[data-drag-handle]")) ev.preventDefault();
+});
+
+const dragConfig = {
+  session: {
+    async onMove(from, to) {
+      const ids = state.session.items.map((item) => item.exercise_id);
+      ids.splice(to, 0, ids.splice(from, 1)[0]);
+      state.session = await api(`/sessions/${state.session.id}/items`, {
+        method: "PUT", body: { exercise_ids: ids },
+      });
+      renderActiveSession();
+    },
+    async onDelete(index) {
+      const item = state.session.items[index];
+      const logged = state.session.sets.filter((set) => set.exercise_id === item.exercise_id).length;
+      if (logged && !confirm(`Remove ${item.name} and its ${logged} logged set${logged === 1 ? "" : "s"}?`)) return;
+      state.session = await api(`/sessions/${state.session.id}/items/${item.exercise_id}`, { method: "DELETE" });
+      renderActiveSession();
+      toast(`${item.name} removed`);
+    },
+  },
+  plan: {
+    onMove(from, to) {
+      syncDraftFromInputs();
+      const items = state.draft.items;
+      items.splice(to, 0, items.splice(from, 1)[0]);
+      $("#sheet-body").innerHTML = planEditorHtml();
+    },
+    onDelete(index) {
+      syncDraftFromInputs();
+      state.draft.items.splice(index, 1);
+      $("#sheet-body").innerHTML = planEditorHtml();
+    },
+  },
+};
+
+const GRIP = `<button type="button" class="drag-handle" data-drag-handle aria-label="Drag to reorder or delete">
+  <svg viewBox="0 0 12 20" width="12" height="20" aria-hidden="true"><g fill="currentColor">
+  <circle cx="3" cy="4" r="1.6"/><circle cx="9" cy="4" r="1.6"/><circle cx="3" cy="10" r="1.6"/>
+  <circle cx="9" cy="10" r="1.6"/><circle cx="3" cy="16" r="1.6"/><circle cx="9" cy="16" r="1.6"/></g></svg>
+</button>`;
 
 // ------------------------------------------------------------- rest timer
 
@@ -385,8 +587,9 @@ function renderActiveSession() {
         const fillRpe = last?.rpe ?? prev?.rpe ?? "";
 
         return `
-      <article class="exercise">
+      <article class="exercise" data-drag-item>
         <div class="exercise-head${done ? " done" : ""}">
+          ${GRIP}
           <div class="grow">
             <h3>${esc(item.name)}</h3>
             <div class="target">${target} &middot; rest ${item.rest_seconds}s</div>
@@ -463,12 +666,11 @@ function planEditorHtml() {
   const items = d.items
     .map(
       (it, i) => `
-    <div class="card" data-idx="${i}">
+    <div class="card" data-idx="${i}" data-drag-item>
       <div class="spread">
+        ${GRIP}
         <strong class="grow">${esc(it.name)}</strong>
-        <button class="btn small subtle" data-action="draft-up" data-idx="${i}">&uarr;</button>
-        <button class="btn small subtle" data-action="draft-down" data-idx="${i}">&darr;</button>
-        <button class="btn small subtle" data-action="draft-remove" data-idx="${i}">&times;</button>
+        <button class="btn small subtle" data-action="draft-remove" data-idx="${i}" aria-label="Remove">&times;</button>
       </div>
       <div class="row" style="margin-top:10px">
         <div class="field"><label>Sets</label>
@@ -492,7 +694,7 @@ function planEditorHtml() {
         <input id="draft-name" value="${esc(d.name)}" placeholder="Push day"></div>
       <div><label>Notes</label>
         <input id="draft-notes" value="${esc(d.notes)}" placeholder="optional"></div>
-      ${items || '<p class="muted">No exercises yet.</p>'}
+      ${items ? `<div class="stack" data-drag-list="plan">${items}</div>` : '<p class="muted">No exercises yet.</p>'}
       <button class="btn ghost" data-action="draft-add">+ Add exercise</button>
       <button class="btn good" data-action="draft-save">Save plan</button>
     </div>`;
@@ -742,18 +944,10 @@ const actions = {
   },
 
   "add-exercise"() {
-    openExercisePicker((exercise) => {
-      // Shown straight away; the server picks it up once a set is logged.
-      if (!state.session.items.some((i) => i.exercise_id === exercise.id)) {
-        state.session.items.push({
-          exercise_id: exercise.id,
-          name: exercise.name,
-          target_sets: 0,
-          target_reps: 0,
-          target_weight: null,
-          rest_seconds: 90,
-        });
-      }
+    openExercisePicker(async (exercise) => {
+      state.session = await api(`/sessions/${state.session.id}/items`, {
+        method: "POST", body: { exercise_id: exercise.id },
+      });
       closeSheet();
       renderActiveSession();
     });
@@ -831,13 +1025,6 @@ const actions = {
     $("#sheet-body").innerHTML = planEditorHtml();
   },
 
-  "draft-up"(el) {
-    moveDraftItem(Number(el.dataset.idx), -1);
-  },
-  "draft-down"(el) {
-    moveDraftItem(Number(el.dataset.idx), 1);
-  },
-
   async "draft-save"() {
     syncDraftFromInputs();
     const d = state.draft;
@@ -864,7 +1051,7 @@ const actions = {
     const exercise = state.exercises.find(
       (e) => e.id === Number(el.dataset.id),
     );
-    if (exercise && state.onPick) state.onPick(exercise);
+    if (exercise && state.onPick) return state.onPick(exercise);
   },
 
   "new-exercise"() {
@@ -912,7 +1099,7 @@ const actions = {
       },
     });
     state.exercises = await api("/exercises");
-    if (state.onPick) state.onPick(created);
+    if (state.onPick) return state.onPick(created);
   },
 
   "show-session"(el) {
@@ -963,15 +1150,6 @@ const actions = {
     closeSheet();
   },
 };
-
-function moveDraftItem(index, delta) {
-  syncDraftFromInputs();
-  const items = state.draft.items;
-  const target = index + delta;
-  if (target < 0 || target >= items.length) return;
-  [items[index], items[target]] = [items[target], items[index]];
-  $("#sheet-body").innerHTML = planEditorHtml();
-}
 
 // -------------------------------------------------------------------- wiring
 

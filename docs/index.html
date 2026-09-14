@@ -55,7 +55,7 @@
               Finish
             </button>
           </div>
-          <div id="exercise-list" class="stack"></div>
+          <div id="exercise-list" class="stack" data-drag-list="session"></div>
           <button class="btn ghost" data-action="add-exercise">
             + Add exercise
           </button>
@@ -112,6 +112,15 @@
         </div>
         <div id="sheet-body" class="sheet-body"></div>
       </div>
+    </div>
+
+    <!-- Drop target shown while an exercise is being dragged. -->
+    <div id="trash" class="trash" hidden>
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6M10 11v6M14 11v6"/>
+      </svg>
+      <span>Drop here to delete</span>
     </div>
 
     <div id="toast" class="toast" hidden></div>
