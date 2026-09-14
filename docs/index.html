@@ -68,7 +68,18 @@
       <!-- ------------------------------------------------ Plans -->
       <section id="view-plans" class="view" hidden>
         <div id="plan-list" class="stack"></div>
-        <button class="btn" data-action="new-plan">+ New plan</button>
+        <div class="stack tight page-foot">
+          <button class="btn" data-action="new-plan">+ New plan</button>
+          <div class="row">
+            <button class="btn small ghost" data-action="export-plans">
+              Export plans
+            </button>
+            <button class="btn small ghost" data-action="import-plans">
+              Import plans
+            </button>
+          </div>
+          <input id="import-plans-file" type="file" hidden />
+        </div>
       </section>
 
       <!-- ------------------------------------------------ History -->

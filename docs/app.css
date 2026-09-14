@@ -100,17 +100,20 @@ body {
   padding: 14px 16px calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 24px);
 }
 
-/* History fills the screen so the backup card sits at the bottom of the page,
- * not just under a short list. */
-#view-history {
+/* History and Plans fill the screen so their footer controls sit at the
+ * bottom of the page, not just under a short list. */
+#view-history,
+#view-plans {
   flex: 1;
   display: flex;
   flex-direction: column;
 }
-#history-list {
+#history-list,
+#plan-list {
   margin-bottom: 16px;
 }
-#view-history .data-tools {
+#view-history .data-tools,
+.page-foot {
   margin-top: auto;
 }
 

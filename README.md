@@ -42,6 +42,9 @@ then from the **History** tab:
   from a workout also removes the sets logged for it, after asking.
 - **Plans** — a plan is a named, ordered list of exercises with target sets,
   reps, RPE and rest. Editing a plan never touches workouts already logged.
+  **Export plans** shares just your plans as a file; **Import plans** adds the
+  plans from such a file to your list (nothing is replaced; missing exercises
+  are created).
 - **History** — past sessions with set count and total volume; tap one to see
   every set. Pick an exercise in the filter to see every time you did it, newest
   first.

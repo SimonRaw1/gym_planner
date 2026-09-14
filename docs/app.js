@@ -1395,29 +1395,27 @@ const actions = {
     const stamp = new Date().toISOString();
     const name = `gym-planner-backup-${stamp.slice(0, 10)}.json`;
     const json = JSON.stringify({ ...data, exported_at: stamp }, null, 2);
-    const file = new File([json], name, { type: "application/json" });
-
-    if (navigator.canShare?.({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], title: name });
-      } catch (err) {
-        if (err.name === "AbortError") return; // closed the share sheet
-        throw err;
-      }
-    } else {
-      const url = URL.createObjectURL(file);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = name;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
+    if (!(await shareJson(name, json))) return;
     await writeLocalData({ ...data, last_export: nowTs() });
     toast("Backup exported");
   },
 
   "import-data"() {
     $("#import-file").click();
+  },
+
+  async "export-plans"() {
+    // No awaits before share(): browsers only allow it straight after a tap.
+    const data = dataCache;
+    if (!data?.plans.length) return toast("No plans to export");
+    const stamp = new Date().toISOString();
+    const name = `gym-planner-plans-${stamp.slice(0, 10)}.json`;
+    const json = JSON.stringify(plansToExport(data, stamp), null, 2);
+    if (await shareJson(name, json)) toast("Plans exported");
+  },
+
+  "import-plans"() {
+    $("#import-plans-file").click();
   },
 
   "close-sheet"() {
@@ -1444,6 +1442,121 @@ document.addEventListener("click", async (ev) => {
     toast(err.message);
   }
 });
+
+/** Share a JSON file, or download it where sharing files is unsupported.
+ * Resolves false if the share sheet was dismissed. */
+async function shareJson(name, json) {
+  const file = new File([json], name, { type: "application/json" });
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: name });
+    } catch (err) {
+      if (err.name === "AbortError") return false; // closed the share sheet
+      throw err;
+    }
+  } else {
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  return true;
+}
+
+/** Plans with exercises referenced by name, since ids differ between phones. */
+function plansToExport(data, stamp) {
+  return {
+    kind: "gym-planner-plans",
+    version: 1,
+    exported_at: stamp,
+    plans: data.plans.map((plan) => ({
+      name: plan.name,
+      notes: plan.notes || "",
+      items: plan.items.map((item) => {
+        const exercise = data.exercises.find((e) => e.id === item.exercise_id);
+        return {
+          exercise: {
+            name: exercise?.name || "Unknown exercise",
+            muscle_group: exercise?.muscle_group || "other",
+            equipment: exercise?.equipment || "",
+          },
+          target_sets: item.target_sets,
+          target_reps: item.target_reps,
+          target_rpe: item.target_rpe ?? null,
+          rest_seconds: item.rest_seconds,
+        };
+      }),
+    })),
+  };
+}
+
+/** Add the plans from a plans export (or a full backup) to the local data.
+ * Exercises are matched by name and created when missing; existing plans are
+ * never replaced, and a clashing name gets a number. Returns how many were added. */
+function addImportedPlans(data, imported) {
+  let plans;
+  if (imported?.kind === "gym-planner-plans" && Array.isArray(imported.plans)) {
+    plans = imported.plans;
+  } else if (
+    imported?.version === 1 &&
+    Array.isArray(imported.plans) &&
+    Array.isArray(imported.exercises)
+  ) {
+    plans = plansToExport(imported, "").plans;
+  } else {
+    throw new Error("That file has no Gym Planner plans");
+  }
+
+  const exerciseId = (exercise) => {
+    const name = String(exercise?.name || "").trim();
+    if (!name) return null;
+    const found = data.exercises.find(
+      (e) => e.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (found) return found.id;
+    const created = {
+      id: data.nextIds.exercise++,
+      name,
+      muscle_group: exercise.muscle_group || "other",
+      equipment: exercise.equipment || "",
+      notes: "",
+    };
+    data.exercises.push(created);
+    return created.id;
+  };
+  const freeName = (name) => {
+    const taken = new Set(data.plans.map((p) => p.name.toLowerCase()));
+    if (!taken.has(name.toLowerCase())) return name;
+    let n = 2;
+    while (taken.has(`${name} (${n})`.toLowerCase())) n++;
+    return `${name} (${n})`;
+  };
+
+  plans.forEach((plan) => {
+    const items = [];
+    (plan.items || []).forEach((item) => {
+      const id = exerciseId(item.exercise);
+      if (id === null || items.some((it) => it.exercise_id === id)) return;
+      items.push({
+        exercise_id: id,
+        target_sets: Number(item.target_sets) || 0,
+        target_reps: Number(item.target_reps) || 0,
+        target_rpe: item.target_rpe == null ? null : Number(item.target_rpe),
+        rest_seconds: Number(item.rest_seconds) || 0,
+      });
+    });
+    data.plans.push({
+      id: data.nextIds.plan++,
+      name: freeName(String(plan.name || "").trim() || "Imported plan"),
+      notes: plan.notes || "",
+      created_at: nowTs(),
+      items,
+    });
+  });
+  return plans.length;
+}
 
 /** Check a parsed backup and rebuild it as a clean data object. */
 function backupToData(imported) {
@@ -1511,6 +1624,27 @@ $("#import-file").addEventListener("change", async (ev) => {
     refresh();
   } catch (err) {
     toast(err.message || "Could not import backup");
+  }
+});
+
+$("#import-plans-file").addEventListener("change", async (ev) => {
+  const file = ev.target.files[0];
+  ev.target.value = "";
+  if (!file) return;
+  try {
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      throw new Error("That file has no Gym Planner plans");
+    }
+    const data = await localData();
+    const added = addImportedPlans(data, parsed);
+    await writeLocalData(data);
+    toast(`Added ${added} plan${added === 1 ? "" : "s"}`);
+    refresh();
+  } catch (err) {
+    toast(err.message || "Could not import plans");
   }
 });
 
