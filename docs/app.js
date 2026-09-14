@@ -11,6 +11,7 @@ const state = {
   plans: [],
   session: null,
   history: [],
+  historyExercise: null, // exercise id the History list is filtered to
   draft: null, // plan being edited in the sheet
   rest: null, // { until: epochMs, timer: intervalId }
 };
@@ -127,7 +128,7 @@ const ITEM_FIELDS = [
   "exercise_id",
   "target_sets",
   "target_reps",
-  "target_weight",
+  "target_rpe",
   "rest_seconds",
 ];
 const plainItem = (item) =>
@@ -136,7 +137,7 @@ const blankItem = (exerciseId) => ({
   exercise_id: exerciseId,
   target_sets: 0,
   target_reps: 0,
-  target_weight: null,
+  target_rpe: null,
   rest_seconds: 90,
 });
 
@@ -781,21 +782,19 @@ function renderActiveSession() {
 
         const target = item.target_sets
           ? `${item.target_sets} &times; ${item.target_reps}${
-              item.target_weight ? ` @ ${fmtWeight(item.target_weight)} kg` : ""
+              item.target_rpe != null ? ` @ RPE ${item.target_rpe}` : ""
             }`
           : "no target";
 
         const last = sets[sets.length - 1];
         const fillWeight = last
           ? fmtWeight(last.weight)
-          : item.target_weight
-            ? fmtWeight(item.target_weight)
-            : prev
-              ? fmtWeight(prev.weight)
-              : "";
+          : prev
+            ? fmtWeight(prev.weight)
+            : "";
         const fillReps =
           item.target_reps || (last ? last.reps : prev ? prev.reps : "");
-        const fillRpe = last?.rpe ?? prev?.rpe ?? "";
+        const fillRpe = last?.rpe ?? item.target_rpe ?? prev?.rpe ?? "";
 
         return `
       <article class="exercise" data-drag-item>
@@ -890,8 +889,8 @@ function planEditorHtml() {
           <input type="number" inputmode="numeric" min="1" data-idx="${i}" data-f="target_reps" value="${it.target_reps}"></div>
       </div>
       <div class="row" style="margin-top:8px">
-        <div class="field"><label>Weight (kg)</label>
-          <input type="number" inputmode="decimal" step="0.5" min="0" data-idx="${i}" data-f="target_weight" value="${it.target_weight ?? ""}"></div>
+        <div class="field"><label>RPE</label>
+          <input type="number" inputmode="decimal" step="0.5" min="1" max="10" data-idx="${i}" data-f="target_rpe" value="${it.target_rpe ?? ""}"></div>
         <div class="field"><label>Rest (s)</label>
           <input type="number" inputmode="numeric" min="0" data-idx="${i}" data-f="rest_seconds" value="${it.rest_seconds}"></div>
       </div>
@@ -922,7 +921,7 @@ function openPlanEditor(plan) {
           name: it.name,
           target_sets: it.target_sets,
           target_reps: it.target_reps,
-          target_weight: it.target_weight,
+          target_rpe: it.target_rpe ?? null,
           rest_seconds: it.rest_seconds,
         })),
       }
@@ -942,8 +941,8 @@ function syncDraftFromInputs() {
     const item = d.items[Number(input.dataset.idx)];
     if (!item) return;
     const field = input.dataset.f;
-    if (field === "target_weight") {
-      item.target_weight = input.value === "" ? null : num(input.value);
+    if (field === "target_rpe") {
+      item.target_rpe = input.value === "" ? null : num(input.value);
     } else {
       item[field] =
         parseInt(input.value, 10) || (field === "rest_seconds" ? 0 : 1);
@@ -995,8 +994,64 @@ function renderBackupStatus() {
     : "Not exported yet.";
 }
 
+function renderHistoryFilter() {
+  const logged = new Set(
+    state.history.flatMap((s) => s.sets.map((x) => x.exercise_id)),
+  );
+  const options = state.exercises
+    .filter((e) => logged.has(e.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (!options.some((e) => e.id === state.historyExercise))
+    state.historyExercise = null;
+  $("#history-filter").innerHTML =
+    '<option value="">All workouts</option>' +
+    options
+      .map(
+        (e) =>
+          `<option value="${e.id}"${e.id === state.historyExercise ? " selected" : ""}>${esc(e.name)}</option>`,
+      )
+      .join("");
+}
+
+/** Every session containing one exercise, newest first, with just its sets. */
+function renderExerciseHistory(exerciseId) {
+  const sessions = state.history
+    .map((s) => ({
+      ...s,
+      sets: s.sets.filter((x) => x.exercise_id === exerciseId),
+    }))
+    .filter((s) => s.sets.length);
+  $("#history-list").innerHTML = sessions
+    .map((s) => {
+      const top = Math.max(...s.sets.map((x) => x.weight));
+      return `
+        <button class="card" style="text-align:left;width:100%;cursor:pointer"
+          data-action="show-session" data-id="${s.id}">
+          <div class="spread">
+            <div class="grow">
+              <h2>${esc(dayLabel(s.started_at))}</h2>
+              <span class="muted">${esc(s.name)} &middot; ${s.sets.length} set${s.sets.length === 1 ? "" : "s"}</span>
+            </div>
+            <span class="pill">top ${fmtWeight(top)} kg</span>
+          </div>
+          <div class="stack tight" style="margin-top:8px">
+            ${s.sets
+              .map(
+                (x, i) => `<div class="setrow"><span class="idx">${i + 1}</span>
+              <span>${x.reps} &times; ${fmtWeight(x.weight)} kg${x.rpe != null ? ` · RPE ${x.rpe}` : ""}</span><span></span></div>`,
+              )
+              .join("")}
+          </div>
+        </button>`;
+    })
+    .join("");
+}
+
 function renderHistory() {
   renderBackupStatus();
+  renderHistoryFilter();
+  if (state.historyExercise !== null)
+    return renderExerciseHistory(state.historyExercise);
   $("#history-list").innerHTML = state.history.length
     ? state.history
         .map(
@@ -1087,7 +1142,10 @@ async function refresh() {
       state.plans = await api("/plans");
       renderPlans();
     } else {
-      state.history = await api("/history");
+      [state.history, state.exercises] = await Promise.all([
+        api("/history"),
+        api("/exercises"),
+      ]);
       renderHistory();
     }
   } catch (err) {
@@ -1229,7 +1287,7 @@ const actions = {
         name: exercise.name,
         target_sets: 3,
         target_reps: 10,
-        target_weight: null,
+        target_rpe: null,
         rest_seconds: 90,
       });
       state.draft = draft;
@@ -1247,6 +1305,13 @@ const actions = {
     syncDraftFromInputs();
     const d = state.draft;
     if (!d.name.trim()) return toast("Give the plan a name");
+    if (
+      d.items.some(
+        (it) =>
+          it.target_rpe !== null && (it.target_rpe < 1 || it.target_rpe > 10),
+      )
+    )
+      return toast("RPE must be between 1 and 10");
     const body = {
       name: d.name,
       notes: d.notes,
@@ -1254,7 +1319,7 @@ const actions = {
         exercise_id: it.exercise_id,
         target_sets: it.target_sets,
         target_reps: it.target_reps,
-        target_weight: it.target_weight,
+        target_rpe: it.target_rpe,
         rest_seconds: it.rest_seconds,
       })),
     };
@@ -1421,6 +1486,11 @@ function backupToData(imported) {
       : null,
   };
 }
+
+$("#history-filter").addEventListener("change", (ev) => {
+  state.historyExercise = ev.target.value ? Number(ev.target.value) : null;
+  renderHistory();
+});
 
 $("#import-file").addEventListener("change", async (ev) => {
   const file = ev.target.files[0];

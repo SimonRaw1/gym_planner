@@ -43,9 +43,10 @@ The History tab shows when you last exported.
   the trash bin that appears at the bottom to delete it. Removing an exercise
   from a workout also removes the sets logged for it, after asking.
 - **Plans** — a plan is a named, ordered list of exercises with target sets,
-  reps, weight and rest. Editing a plan never touches workouts already logged.
+  reps, RPE and rest. Editing a plan never touches workouts already logged.
 - **History** — past sessions with set count and total volume; tap one to see
-  every set.
+  every set. Pick an exercise in the filter to see every time you did it, newest
+  first.
 
 Weights are in kg throughout. To switch to lb, change the `kg` labels in
 [docs/app.js](docs/app.js).
