@@ -21,17 +21,28 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 // --------------------------------------------------------------- utilities
 
 const SEED_EXERCISES = [
-  ["Back Squat", "legs", "barbell"], ["Deadlift", "back", "barbell"],
-  ["Bench Press", "chest", "barbell"], ["Overhead Press", "shoulders", "barbell"],
-  ["Barbell Row", "back", "barbell"], ["Pull Up", "back", "bodyweight"],
-  ["Chin Up", "arms", "bodyweight"], ["Dip", "chest", "bodyweight"],
-  ["Romanian Deadlift", "legs", "barbell"], ["Leg Press", "legs", "machine"],
-  ["Leg Curl", "legs", "machine"], ["Lat Pulldown", "back", "cable"],
-  ["Seated Cable Row", "back", "cable"], ["Dumbbell Bench Press", "chest", "dumbbell"],
-  ["Incline Dumbbell Press", "chest", "dumbbell"], ["Lateral Raise", "shoulders", "dumbbell"],
-  ["Face Pull", "shoulders", "cable"], ["Bicep Curl", "arms", "dumbbell"],
-  ["Tricep Pushdown", "arms", "cable"], ["Plank", "core", "bodyweight"],
-  ["Hanging Leg Raise", "core", "bodyweight"], ["Calf Raise", "legs", "machine"],
+  ["Back Squat", "legs", "barbell"],
+  ["Deadlift", "back", "barbell"],
+  ["Bench Press", "chest", "barbell"],
+  ["Overhead Press", "shoulders", "barbell"],
+  ["Barbell Row", "back", "barbell"],
+  ["Pull Up", "back", "bodyweight"],
+  ["Chin Up", "arms", "bodyweight"],
+  ["Dip", "chest", "bodyweight"],
+  ["Romanian Deadlift", "legs", "barbell"],
+  ["Leg Press", "legs", "machine"],
+  ["Leg Curl", "legs", "machine"],
+  ["Lat Pulldown", "back", "cable"],
+  ["Seated Cable Row", "back", "cable"],
+  ["Dumbbell Bench Press", "chest", "dumbbell"],
+  ["Incline Dumbbell Press", "chest", "dumbbell"],
+  ["Lateral Raise", "shoulders", "dumbbell"],
+  ["Face Pull", "shoulders", "cable"],
+  ["Bicep Curl", "arms", "dumbbell"],
+  ["Tricep Pushdown", "arms", "cable"],
+  ["Plank", "core", "bodyweight"],
+  ["Hanging Leg Raise", "core", "bodyweight"],
+  ["Calf Raise", "legs", "machine"],
 ];
 
 const LOCAL_DB = "gym-planner-local";
@@ -47,7 +58,8 @@ function openLocalDb() {
   if (localDbPromise) return localDbPromise;
   localDbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(LOCAL_DB, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore(LOCAL_STORE);
+    request.onupgradeneeded = () =>
+      request.result.createObjectStore(LOCAL_STORE);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -57,7 +69,10 @@ function openLocalDb() {
 async function readLocalData() {
   const db = await openLocalDb();
   return new Promise((resolve, reject) => {
-    const request = db.transaction(LOCAL_STORE).objectStore(LOCAL_STORE).get("data");
+    const request = db
+      .transaction(LOCAL_STORE)
+      .objectStore(LOCAL_STORE)
+      .get("data");
     request.onsuccess = () => resolve(request.result || null);
     request.onerror = () => reject(request.error);
   });
@@ -66,9 +81,14 @@ async function readLocalData() {
 async function writeLocalData(data) {
   const db = await openLocalDb();
   return new Promise((resolve, reject) => {
-    const request = db.transaction(LOCAL_STORE, "readwrite")
-      .objectStore(LOCAL_STORE).put(data, "data");
-    request.onsuccess = () => { dataCache = data; resolve(); };
+    const request = db
+      .transaction(LOCAL_STORE, "readwrite")
+      .objectStore(LOCAL_STORE)
+      .put(data, "data");
+    request.onsuccess = () => {
+      dataCache = data;
+      resolve();
+    };
     request.onerror = () => reject(request.error);
   });
 }
@@ -81,24 +101,43 @@ async function localData() {
     version: 1,
     nextIds: { exercise: 1, plan: 1, session: 1, set: 1 },
     exercises: SEED_EXERCISES.map(([name, muscle_group, equipment]) => ({
-      id: 0, name, muscle_group, equipment, notes: "",
+      id: 0,
+      name,
+      muscle_group,
+      equipment,
+      notes: "",
     })),
     plans: [],
     sessions: [],
   };
-  data.exercises.forEach((exercise) => { exercise.id = data.nextIds.exercise++; });
+  data.exercises.forEach((exercise) => {
+    exercise.id = data.nextIds.exercise++;
+  });
   await writeLocalData(data);
   return data;
 }
 
 function bodyOf(options) {
-  return typeof options.body === "string" ? JSON.parse(options.body) : (options.body || {});
+  return typeof options.body === "string"
+    ? JSON.parse(options.body)
+    : options.body || {};
 }
 
-const ITEM_FIELDS = ["exercise_id", "target_sets", "target_reps", "target_weight", "rest_seconds"];
-const plainItem = (item) => Object.fromEntries(ITEM_FIELDS.map((key) => [key, item[key]]));
+const ITEM_FIELDS = [
+  "exercise_id",
+  "target_sets",
+  "target_reps",
+  "target_weight",
+  "rest_seconds",
+];
+const plainItem = (item) =>
+  Object.fromEntries(ITEM_FIELDS.map((key) => [key, item[key]]));
 const blankItem = (exerciseId) => ({
-  exercise_id: exerciseId, target_sets: 0, target_reps: 0, target_weight: null, rest_seconds: 90,
+  exercise_id: exerciseId,
+  target_sets: 0,
+  target_reps: 0,
+  target_weight: null,
+  rest_seconds: 90,
 });
 
 /** A session's exercise list, in order. Sessions store their own list; ones
@@ -128,30 +167,49 @@ function findSession(data, id) {
 
 function sessionDetail(data, id) {
   const session = findSession(data, id);
-  const items = sessionItems(data, session)
-    .map((item) => ({ ...item, ...data.exercises.find((e) => e.id === item.exercise_id) }));
+  const items = sessionItems(data, session).map((item) => ({
+    ...item,
+    ...data.exercises.find((e) => e.id === item.exercise_id),
+  }));
   const previous = {};
   items.forEach((item) => {
     const previousSet = data.sessions
-      .filter((other) => other.id !== id && other.sets.some((set) => set.exercise_id === item.exercise_id))
-      .sort((a, b) => b.started_at.localeCompare(a.started_at))[0]?.sets
-      .filter((set) => set.exercise_id === item.exercise_id)
+      .filter(
+        (other) =>
+          other.id !== id &&
+          other.sets.some((set) => set.exercise_id === item.exercise_id),
+      )
+      .sort((a, b) => b.started_at.localeCompare(a.started_at))[0]
+      ?.sets.filter((set) => set.exercise_id === item.exercise_id)
       .sort((a, b) => b.weight - a.weight)[0];
     if (previousSet) {
-      const previousSession = data.sessions.find((other) => other.sets.includes(previousSet));
-      previous[item.exercise_id] = { ...previousSet, started_at: previousSession.started_at };
+      const previousSession = data.sessions.find((other) =>
+        other.sets.includes(previousSet),
+      );
+      previous[item.exercise_id] = {
+        ...previousSet,
+        started_at: previousSession.started_at,
+      };
     }
   });
   const sets = session.sets.map((set) => ({
-    ...set, name: data.exercises.find((e) => e.id === set.exercise_id)?.name || "Unknown exercise",
+    ...set,
+    name:
+      data.exercises.find((e) => e.id === set.exercise_id)?.name ||
+      "Unknown exercise",
   }));
   return { ...session, sets, items, previous };
 }
 
 function planSummary(data, plan) {
-  const last = data.sessions.filter((session) => session.plan_id === plan.id)
+  const last = data.sessions
+    .filter((session) => session.plan_id === plan.id)
     .sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
-  return { ...plan, exercise_count: plan.items.length, last_done: last?.started_at || null };
+  return {
+    ...plan,
+    exercise_count: plan.items.length,
+    last_done: last?.started_at || null,
+  };
 }
 
 async function api(path, options = {}) {
@@ -161,70 +219,185 @@ async function api(path, options = {}) {
   const match = (pattern) => path.match(pattern);
   let result = null;
 
-  if (path === "/exercises" && method === "GET") result = [...data.exercises].sort((a, b) => a.muscle_group.localeCompare(b.muscle_group) || a.name.localeCompare(b.name));
+  if (path === "/exercises" && method === "GET")
+    result = [...data.exercises].sort(
+      (a, b) =>
+        a.muscle_group.localeCompare(b.muscle_group) ||
+        a.name.localeCompare(b.name),
+    );
   else if (path === "/exercises" && method === "POST") {
-    if (data.exercises.some((item) => item.name.toLowerCase() === body.name.trim().toLowerCase())) throw new Error("That exercise already exists");
-    const exercise = { id: data.nextIds.exercise++, name: body.name.trim(), muscle_group: body.muscle_group || "other", equipment: body.equipment || "", notes: body.notes || "" };
-    data.exercises.push(exercise); result = exercise;
-  } else if (path === "/plans" && method === "GET") result = data.plans.map((plan) => planSummary(data, plan)).sort((a, b) => a.name.localeCompare(b.name));
+    if (
+      data.exercises.some(
+        (item) => item.name.toLowerCase() === body.name.trim().toLowerCase(),
+      )
+    )
+      throw new Error("That exercise already exists");
+    const exercise = {
+      id: data.nextIds.exercise++,
+      name: body.name.trim(),
+      muscle_group: body.muscle_group || "other",
+      equipment: body.equipment || "",
+      notes: body.notes || "",
+    };
+    data.exercises.push(exercise);
+    result = exercise;
+  } else if (path === "/plans" && method === "GET")
+    result = data.plans
+      .map((plan) => planSummary(data, plan))
+      .sort((a, b) => a.name.localeCompare(b.name));
   else if (path === "/plans" && method === "POST") {
-    const plan = { id: data.nextIds.plan++, name: body.name.trim(), notes: body.notes || "", created_at: nowTs(), items: body.items || [] };
-    data.plans.push(plan); result = plan;
-  } else if ((match(/^\/plans\/(\d+)$/)) && method === "GET") {
-    const plan = data.plans.find((item) => item.id === Number(match(/^\/plans\/(\d+)$/)[1]));
+    const plan = {
+      id: data.nextIds.plan++,
+      name: body.name.trim(),
+      notes: body.notes || "",
+      created_at: nowTs(),
+      items: body.items || [],
+    };
+    data.plans.push(plan);
+    result = plan;
+  } else if (match(/^\/plans\/(\d+)$/) && method === "GET") {
+    const plan = data.plans.find(
+      (item) => item.id === Number(match(/^\/plans\/(\d+)$/)[1]),
+    );
     if (!plan) throw new Error("Plan not found");
-    result = { ...plan, items: plan.items.map((item) => ({ ...item, ...data.exercises.find((e) => e.id === item.exercise_id) })) };
-  } else if ((match(/^\/plans\/(\d+)$/)) && method === "PUT") {
-    const plan = data.plans.find((item) => item.id === Number(match(/^\/plans\/(\d+)$/)[1]));
+    result = {
+      ...plan,
+      items: plan.items.map((item) => ({
+        ...item,
+        ...data.exercises.find((e) => e.id === item.exercise_id),
+      })),
+    };
+  } else if (match(/^\/plans\/(\d+)$/) && method === "PUT") {
+    const plan = data.plans.find(
+      (item) => item.id === Number(match(/^\/plans\/(\d+)$/)[1]),
+    );
     if (!plan) throw new Error("Plan not found");
-    Object.assign(plan, { name: body.name.trim(), notes: body.notes || "", items: body.items || [] }); result = plan;
-  } else if ((match(/^\/plans\/(\d+)$/)) && method === "DELETE") {
-    const id = Number(match(/^\/plans\/(\d+)$/)[1]); data.plans = data.plans.filter((plan) => plan.id !== id); result = null;
+    Object.assign(plan, {
+      name: body.name.trim(),
+      notes: body.notes || "",
+      items: body.items || [],
+    });
+    result = plan;
+  } else if (match(/^\/plans\/(\d+)$/) && method === "DELETE") {
+    const id = Number(match(/^\/plans\/(\d+)$/)[1]);
+    data.plans = data.plans.filter((plan) => plan.id !== id);
+    result = null;
   } else if (path === "/sessions/active" && method === "GET") {
-    const session = data.sessions.filter((item) => !item.finished_at).sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
+    const session = data.sessions
+      .filter((item) => !item.finished_at)
+      .sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
     result = session ? sessionDetail(data, session.id) : null;
   } else if (path === "/sessions" && method === "POST") {
     const plan = data.plans.find((item) => item.id === body.plan_id);
-    const session = { id: data.nextIds.session++, plan_id: body.plan_id || null, name: body.name?.trim() || plan?.name || "New session", started_at: nowTs(), finished_at: null, notes: "", items: (plan?.items || []).map(plainItem), sets: [] };
-    data.sessions.push(session); result = sessionDetail(data, session.id);
-  } else if ((match(/^\/sessions\/(\d+)$/)) && method === "GET") result = sessionDetail(data, Number(match(/^\/sessions\/(\d+)$/)[1]));
-  else if ((match(/^\/sessions\/(\d+)\/items$/)) && method === "POST") {
+    const session = {
+      id: data.nextIds.session++,
+      plan_id: body.plan_id || null,
+      name: body.name?.trim() || plan?.name || "New session",
+      started_at: nowTs(),
+      finished_at: null,
+      notes: "",
+      items: (plan?.items || []).map(plainItem),
+      sets: [],
+    };
+    data.sessions.push(session);
+    result = sessionDetail(data, session.id);
+  } else if (match(/^\/sessions\/(\d+)$/) && method === "GET")
+    result = sessionDetail(data, Number(match(/^\/sessions\/(\d+)$/)[1]));
+  else if (match(/^\/sessions\/(\d+)\/items$/) && method === "POST") {
     const session = findSession(data, match(/^\/sessions\/(\d+)\/items$/)[1]);
     session.items = sessionItems(data, session);
-    if (!session.items.some((item) => item.exercise_id === body.exercise_id)) session.items.push(blankItem(body.exercise_id));
+    if (!session.items.some((item) => item.exercise_id === body.exercise_id))
+      session.items.push(blankItem(body.exercise_id));
     result = sessionDetail(data, session.id);
-  } else if ((match(/^\/sessions\/(\d+)\/items$/)) && method === "PUT") {
+  } else if (match(/^\/sessions\/(\d+)\/items$/) && method === "PUT") {
     const session = findSession(data, match(/^\/sessions\/(\d+)\/items$/)[1]);
     const items = sessionItems(data, session);
-    const rank = new Map(body.exercise_ids.map((exerciseId, i) => [exerciseId, i]));
-    session.items = items.sort((a, b) => (rank.get(a.exercise_id) ?? Infinity) - (rank.get(b.exercise_id) ?? Infinity));
+    const rank = new Map(
+      body.exercise_ids.map((exerciseId, i) => [exerciseId, i]),
+    );
+    session.items = items.sort(
+      (a, b) =>
+        (rank.get(a.exercise_id) ?? Infinity) -
+        (rank.get(b.exercise_id) ?? Infinity),
+    );
     result = sessionDetail(data, session.id);
-  } else if ((match(/^\/sessions\/(\d+)\/items\/(\d+)$/)) && method === "DELETE") {
-    const [, sessionId, exerciseId] = match(/^\/sessions\/(\d+)\/items\/(\d+)$/).map(Number);
+  } else if (
+    match(/^\/sessions\/(\d+)\/items\/(\d+)$/) &&
+    method === "DELETE"
+  ) {
+    const [, sessionId, exerciseId] = match(
+      /^\/sessions\/(\d+)\/items\/(\d+)$/,
+    ).map(Number);
     const session = findSession(data, sessionId);
-    session.items = sessionItems(data, session).filter((item) => item.exercise_id !== exerciseId);
+    session.items = sessionItems(data, session).filter(
+      (item) => item.exercise_id !== exerciseId,
+    );
     session.sets = session.sets.filter((set) => set.exercise_id !== exerciseId);
     result = sessionDetail(data, session.id);
-  }
-  else if ((match(/^\/sessions\/(\d+)\/sets$/)) && method === "POST") {
-    const session = data.sessions.find((item) => item.id === Number(match(/^\/sessions\/(\d+)\/sets$/)[1]));
+  } else if (match(/^\/sessions\/(\d+)\/sets$/) && method === "POST") {
+    const session = data.sessions.find(
+      (item) => item.id === Number(match(/^\/sessions\/(\d+)\/sets$/)[1]),
+    );
     if (!session) throw new Error("Session not found");
-    session.sets.push({ id: data.nextIds.set++, ...body, logged_at: nowTs() }); result = sessionDetail(data, session.id);
-  } else if ((match(/^\/sets\/(\d+)$/)) && method === "DELETE") {
-    const id = Number(match(/^\/sets\/(\d+)$/)[1]); data.sessions.forEach((session) => { session.sets = session.sets.filter((set) => set.id !== id); });
-  } else if ((match(/^\/sessions\/(\d+)\/finish$/)) && method === "POST") {
-    const session = data.sessions.find((item) => item.id === Number(match(/^\/sessions\/(\d+)\/finish$/)[1]));
-    if (!session) throw new Error("Session not found"); session.finished_at = nowTs(); session.notes = body.notes || ""; result = sessionDetail(data, session.id);
-  } else if ((match(/^\/sessions\/(\d+)$/)) && method === "DELETE") {
-    const id = Number(match(/^\/sessions\/(\d+)$/)[1]); data.sessions = data.sessions.filter((session) => session.id !== id);
+    session.sets.push({ id: data.nextIds.set++, ...body, logged_at: nowTs() });
+    result = sessionDetail(data, session.id);
+  } else if (match(/^\/sets\/(\d+)$/) && method === "DELETE") {
+    const id = Number(match(/^\/sets\/(\d+)$/)[1]);
+    data.sessions.forEach((session) => {
+      session.sets = session.sets.filter((set) => set.id !== id);
+    });
+  } else if (match(/^\/sessions\/(\d+)\/finish$/) && method === "POST") {
+    const session = data.sessions.find(
+      (item) => item.id === Number(match(/^\/sessions\/(\d+)\/finish$/)[1]),
+    );
+    if (!session) throw new Error("Session not found");
+    session.finished_at = nowTs();
+    session.notes = body.notes || "";
+    result = sessionDetail(data, session.id);
+  } else if (match(/^\/sessions\/(\d+)$/) && method === "DELETE") {
+    const id = Number(match(/^\/sessions\/(\d+)$/)[1]);
+    data.sessions = data.sessions.filter((session) => session.id !== id);
   } else if (path === "/history" && method === "GET") {
-    result = [...data.sessions].sort((a, b) => b.started_at.localeCompare(a.started_at)).map((session) => ({ ...session, set_count: session.sets.length, exercise_count: new Set(session.sets.map((set) => set.exercise_id)).size, volume: session.sets.reduce((sum, set) => sum + set.reps * set.weight, 0) }));
+    result = [...data.sessions]
+      .sort((a, b) => b.started_at.localeCompare(a.started_at))
+      .map((session) => ({
+        ...session,
+        set_count: session.sets.length,
+        exercise_count: new Set(session.sets.map((set) => set.exercise_id))
+          .size,
+        volume: session.sets.reduce(
+          (sum, set) => sum + set.reps * set.weight,
+          0,
+        ),
+      }));
   } else if (path === "/stats" && method === "GET") {
     const cutoff = Date.now() - 7 * 86400000;
-    const recent = data.sessions.filter((session) => parseTs(session.started_at).getTime() >= cutoff);
+    const recent = data.sessions.filter(
+      (session) => parseTs(session.started_at).getTime() >= cutoff,
+    );
     const sets = recent.flatMap((session) => session.sets);
-    const best = data.exercises.map((exercise) => ({ name: exercise.name, weight: Math.max(0, ...data.sessions.flatMap((session) => session.sets.filter((set) => set.exercise_id === exercise.id).map((set) => set.weight))) })).filter((item) => item.weight > 0).sort((a, b) => b.weight - a.weight).slice(0, 5);
-    result = { sessions_total: data.sessions.filter((session) => session.finished_at).length, sessions_7d: recent.length, volume_7d: sets.reduce((sum, set) => sum + set.reps * set.weight, 0), personal_bests: best };
+    const best = data.exercises
+      .map((exercise) => ({
+        name: exercise.name,
+        weight: Math.max(
+          0,
+          ...data.sessions.flatMap((session) =>
+            session.sets
+              .filter((set) => set.exercise_id === exercise.id)
+              .map((set) => set.weight),
+          ),
+        ),
+      }))
+      .filter((item) => item.weight > 0)
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, 5);
+    result = {
+      sessions_total: data.sessions.filter((session) => session.finished_at)
+        .length,
+      sessions_7d: recent.length,
+      volume_7d: sets.reduce((sum, set) => sum + set.reps * set.weight, 0),
+      personal_bests: best,
+    };
   } else throw new Error("Unknown local data request");
   if (method !== "GET") await writeLocalData(data);
   return result;
@@ -319,7 +492,9 @@ function closeSheet() {
 let drag = null;
 
 function dragItems(list) {
-  return Array.from(list.children).filter((node) => node.matches("[data-drag-item]"));
+  return Array.from(list.children).filter((node) =>
+    node.matches("[data-drag-item]"),
+  );
 }
 
 document.addEventListener("pointerdown", (ev) => {
@@ -334,7 +509,11 @@ document.addEventListener("pointerdown", (ev) => {
   const rect = item.getBoundingClientRect();
   const ghost = item.cloneNode(true);
   ghost.classList.add("drag-ghost");
-  Object.assign(ghost.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px` });
+  Object.assign(ghost.style, {
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+  });
   const placeholder = document.createElement("div");
   placeholder.className = "drag-placeholder";
   placeholder.style.height = `${rect.height}px`;
@@ -346,9 +525,16 @@ document.addEventListener("pointerdown", (ev) => {
   document.body.classList.add("dragging");
 
   drag = {
-    config, list, item, ghost, placeholder, pointerId: ev.pointerId,
+    config,
+    list,
+    item,
+    ghost,
+    placeholder,
+    pointerId: ev.pointerId,
     from: dragItems(list).indexOf(item),
-    offsetY: ev.clientY - rect.top, y: ev.clientY, overTrash: false,
+    offsetY: ev.clientY - rect.top,
+    y: ev.clientY,
+    overTrash: false,
     scroller: list.closest(".sheet-body"),
     frame: requestAnimationFrame(autoScroll),
   };
@@ -393,12 +579,17 @@ function autoScroll() {
   if (!drag) return;
   const box = drag.scroller
     ? drag.scroller.getBoundingClientRect()
-    : { top: $(".topbar").getBoundingClientRect().bottom, bottom: window.innerHeight };
+    : {
+        top: $(".topbar").getBoundingClientRect().bottom,
+        bottom: window.innerHeight,
+      };
   const bottom = Math.min(box.bottom, $("#trash").getBoundingClientRect().top);
   const zone = 70;
   let speed = 0;
-  if (drag.y < box.top + zone) speed = -Math.ceil((box.top + zone - drag.y) / 6);
-  else if (drag.y > bottom - zone && drag.y < bottom) speed = Math.ceil((drag.y - (bottom - zone)) / 6);
+  if (drag.y < box.top + zone)
+    speed = -Math.ceil((box.top + zone - drag.y) / 6);
+  else if (drag.y > bottom - zone && drag.y < bottom)
+    speed = Math.ceil((drag.y - (bottom - zone)) / 6);
   if (speed) {
     if (drag.scroller) drag.scroller.scrollTop += speed;
     else window.scrollBy(0, speed);
@@ -412,7 +603,11 @@ function endDrag(ev) {
   const { config, list, item, ghost, placeholder, from, overTrash } = drag;
   cancelAnimationFrame(drag.frame);
   const to = Array.from(list.children)
-    .filter((node) => node === placeholder || (node.matches("[data-drag-item]") && node !== item))
+    .filter(
+      (node) =>
+        node === placeholder ||
+        (node.matches("[data-drag-item]") && node !== item),
+    )
     .indexOf(placeholder);
   ghost.remove();
   placeholder.remove();
@@ -423,7 +618,11 @@ function endDrag(ev) {
   drag = null;
 
   if (ev.type === "pointercancel") return;
-  const run = overTrash ? config.onDelete(from) : to !== from ? config.onMove(from, to) : null;
+  const run = overTrash
+    ? config.onDelete(from)
+    : to !== from
+      ? config.onMove(from, to)
+      : null;
   Promise.resolve(run).catch((err) => toast(err.message));
 }
 
@@ -441,15 +640,27 @@ const dragConfig = {
       const ids = state.session.items.map((item) => item.exercise_id);
       ids.splice(to, 0, ids.splice(from, 1)[0]);
       state.session = await api(`/sessions/${state.session.id}/items`, {
-        method: "PUT", body: { exercise_ids: ids },
+        method: "PUT",
+        body: { exercise_ids: ids },
       });
       renderActiveSession();
     },
     async onDelete(index) {
       const item = state.session.items[index];
-      const logged = state.session.sets.filter((set) => set.exercise_id === item.exercise_id).length;
-      if (logged && !confirm(`Remove ${item.name} and its ${logged} logged set${logged === 1 ? "" : "s"}?`)) return;
-      state.session = await api(`/sessions/${state.session.id}/items/${item.exercise_id}`, { method: "DELETE" });
+      const logged = state.session.sets.filter(
+        (set) => set.exercise_id === item.exercise_id,
+      ).length;
+      if (
+        logged &&
+        !confirm(
+          `Remove ${item.name} and its ${logged} logged set${logged === 1 ? "" : "s"}?`,
+        )
+      )
+        return;
+      state.session = await api(
+        `/sessions/${state.session.id}/items/${item.exercise_id}`,
+        { method: "DELETE" },
+      );
       renderActiveSession();
       toast(`${item.name} removed`);
     },
@@ -897,19 +1108,25 @@ const actions = {
   },
 
   async "start-freestyle"() {
-      openSheet('Name your session', `
+    openSheet(
+      "Name your session",
+      `
         <div class="stack">
           <div><label for="freestyle-name">Session name</label>
             <input id="freestyle-name" value="" placeholder="e.g. Upper body" maxlength="80" autofocus></div>
           <button class="btn" data-action="begin-freestyle">Start session</button>
-        </div>`);
-      $('#freestyle-name').focus();
-    },
+        </div>`,
+    );
+    $("#freestyle-name").focus();
+  },
 
-    async "begin-freestyle"() {
-      const name = $('#freestyle-name').value.trim() || 'New session';
-      state.session = await api('/sessions', { method: 'POST', body: { plan_id: null, name } });
-      closeSheet();
+  async "begin-freestyle"() {
+    const name = $("#freestyle-name").value.trim() || "New session";
+    state.session = await api("/sessions", {
+      method: "POST",
+      body: { plan_id: null, name },
+    });
+    closeSheet();
     renderTrain();
   },
 
@@ -946,7 +1163,8 @@ const actions = {
   "add-exercise"() {
     openExercisePicker(async (exercise) => {
       state.session = await api(`/sessions/${state.session.id}/items`, {
-        method: "POST", body: { exercise_id: exercise.id },
+        method: "POST",
+        body: { exercise_id: exercise.id },
       });
       closeSheet();
       renderActiveSession();
@@ -1174,10 +1392,14 @@ document.addEventListener("click", async (ev) => {
 /** Check a parsed backup and rebuild it as a clean data object. */
 function backupToData(imported) {
   const lists = ["exercises", "plans", "sessions"];
-  if (imported?.version !== 1 || !lists.every((k) => Array.isArray(imported[k]))) {
+  if (
+    imported?.version !== 1 ||
+    !lists.every((k) => Array.isArray(imported[k]))
+  ) {
     throw new Error("That file is not a Gym Planner backup");
   }
-  const maxId = (items) => items.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0);
+  const maxId = (items) =>
+    items.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0);
   return {
     version: 1,
     // Derived rather than trusted, so new records can never reuse an id.
@@ -1185,12 +1407,18 @@ function backupToData(imported) {
       exercise: maxId(imported.exercises) + 1,
       plan: maxId(imported.plans) + 1,
       session: maxId(imported.sessions) + 1,
-      set: maxId(imported.sessions.flatMap((session) => session.sets || [])) + 1,
+      set:
+        maxId(imported.sessions.flatMap((session) => session.sets || [])) + 1,
     },
     exercises: imported.exercises,
     plans: imported.plans.map((plan) => ({ ...plan, items: plan.items || [] })),
-    sessions: imported.sessions.map((session) => ({ ...session, sets: session.sets || [] })),
-    last_export: imported.exported_at ? imported.exported_at.slice(0, 19).replace("T", " ") : null,
+    sessions: imported.sessions.map((session) => ({
+      ...session,
+      sets: session.sets || [],
+    })),
+    last_export: imported.exported_at
+      ? imported.exported_at.slice(0, 19).replace("T", " ")
+      : null,
   };
 }
 
@@ -1207,7 +1435,12 @@ $("#import-file").addEventListener("change", async (ev) => {
     }
     const data = backupToData(parsed);
     const count = data.sessions.length;
-    if (!confirm(`Replace everything on this phone with this backup (${count} workout${count === 1 ? "" : "s"})?`)) return;
+    if (
+      !confirm(
+        `Replace everything on this phone with this backup (${count} workout${count === 1 ? "" : "s"})?`,
+      )
+    )
+      return;
     await writeLocalData(data);
     stopRest();
     $("#topbar-note").textContent = "";

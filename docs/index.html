@@ -75,15 +75,21 @@
       <section id="view-history" class="view" hidden>
         <div class="card data-tools">
           <h2>Data backup</h2>
-          <p class="muted">Your workouts live only on this phone. Export sends a
-            backup file to the share sheet &mdash; pick Google Drive. Import restores
-            one (choose Drive in the file picker).</p>
+          <p class="muted">
+            Your workouts live only on this phone. Export sends a backup file to
+            the share sheet &mdash; pick Google Drive. Import restores one
+            (choose Drive in the file picker).
+          </p>
           <p class="muted" id="backup-status"></p>
-          <div class="row" style="margin-top:12px">
-            <button class="btn small ghost" data-action="export-data">Export data</button>
-            <button class="btn small ghost" data-action="import-data">Import data</button>
+          <div class="row" style="margin-top: 12px">
+            <button class="btn small ghost" data-action="export-data">
+              Export data
+            </button>
+            <button class="btn small ghost" data-action="import-data">
+              Import data
+            </button>
           </div>
-          <input id="import-file" type="file" hidden>
+          <input id="import-file" type="file" hidden />
         </div>
         <div id="history-list" class="stack"></div>
       </section>
@@ -116,9 +122,20 @@
 
     <!-- Drop target shown while an exercise is being dragged. -->
     <div id="trash" class="trash" hidden>
-      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none"
-        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6M10 11v6M14 11v6"/>
+      <svg
+        viewBox="0 0 24 24"
+        width="26"
+        height="26"
+        aria-hidden="true"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path
+          d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6M10 11v6M14 11v6"
+        />
       </svg>
       <span>Drop here to delete</span>
     </div>

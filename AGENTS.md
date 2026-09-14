@@ -18,7 +18,7 @@ browser's IndexedDB. One user, one phone.
 - docs/app.css: phone-first styling
 - docs/sw.js: service worker that caches the shell for offline use
 - docs/manifest.webmanifest, docs/icons/: PWA install metadata
-- tools/make_icons.py: regenerates the icons
+- tools/make_icons.py: regenerates the icons from tools/logo.png (needs Pillow)
 
 ## Conventions
 

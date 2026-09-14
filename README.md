@@ -59,7 +59,7 @@ docs/app.css             phone-first styling
 docs/sw.js               service worker (caches the app for offline use)
 docs/manifest.webmanifest
 docs/icons/              PWA icons
-tools/make_icons.py      regenerates the icons
+tools/make_icons.py      regenerates the icons from tools/logo.png (needs Pillow)
 ```
 
 ## Changing it

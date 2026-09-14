@@ -463,7 +463,9 @@ body.dragging * {
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
   border-color: var(--accent-dim) !important;
   opacity: 0.95;
-  transition: opacity 0.12s, border-color 0.12s;
+  transition:
+    opacity 0.12s,
+    border-color 0.12s;
 }
 .drag-ghost.doomed {
   border-color: var(--danger) !important;
