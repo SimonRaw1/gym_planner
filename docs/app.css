@@ -86,8 +86,32 @@ p {
   font-size: 0.8rem;
 }
 
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
 #main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   padding: 14px 16px calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 24px);
+}
+
+/* History fills the screen so the backup card sits at the bottom of the page,
+ * not just under a short list. */
+#view-history {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+#history-list {
+  margin-bottom: 16px;
+}
+#view-history .data-tools {
+  margin-top: auto;
 }
 
 .stack {
