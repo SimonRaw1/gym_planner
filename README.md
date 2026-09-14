@@ -25,7 +25,7 @@ Workouts are stored only in the phone's browser storage (IndexedDB). If the app
 is uninstalled or the browser data cleared, they are gone, so back up now and
 then from the **History** tab:
 
-- **Export data** opens the share sheet with a JSON backup file. Pick **Drive**
+- **Export data** opens the share sheet with a backup file (JSON saved as .txt). Pick **Drive**
   (Android) or **Save to Files &rarr; Google Drive** (iPhone).
 - **Import data** opens the file picker. Choose the backup from Google Drive.
   Importing replaces everything currently on the phone.

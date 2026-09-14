@@ -1393,7 +1393,7 @@ const actions = {
     const data = dataCache;
     if (!data) return toast("Nothing to export yet");
     const stamp = new Date().toISOString();
-    const name = `gym-planner-backup-${stamp.slice(0, 10)}.json`;
+    const name = `gym-planner-backup-${stamp.slice(0, 10)}`;
     const json = JSON.stringify({ ...data, exported_at: stamp }, null, 2);
     if (!(await shareJson(name, json))) return;
     await writeLocalData({ ...data, last_export: nowTs() });
@@ -1409,7 +1409,7 @@ const actions = {
     const data = dataCache;
     if (!data?.plans.length) return toast("No plans to export");
     const stamp = new Date().toISOString();
-    const name = `gym-planner-plans-${stamp.slice(0, 10)}.json`;
+    const name = `gym-planner-plans-${stamp.slice(0, 10)}`;
     const json = JSON.stringify(plansToExport(data, stamp), null, 2);
     if (await shareJson(name, json)) toast("Plans exported");
   },
@@ -1443,25 +1443,31 @@ document.addEventListener("click", async (ev) => {
   }
 });
 
-/** Share a JSON file, or download it where sharing files is unsupported.
- * Resolves false if the share sheet was dismissed. */
+/** Share JSON as a file (name without extension), or download it where
+ * sharing files is unsupported. Resolves false if the share sheet was dismissed.
+ *
+ * Shared as .txt because Chrome refuses to share .json files ("Permission
+ * denied"); the imports read the text either way. */
 async function shareJson(name, json) {
-  const file = new File([json], name, { type: "application/json" });
+  const file = new File([json], `${name}.txt`, { type: "text/plain" });
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: name });
+      return true;
     } catch (err) {
       if (err.name === "AbortError") return false; // closed the share sheet
-      throw err;
+      if (err.name !== "NotAllowedError") throw err;
+      // Sharing refused on this device: fall through to a plain download.
     }
-  } else {
-    const url = URL.createObjectURL(file);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = name;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  const url = URL.createObjectURL(
+    new Blob([json], { type: "application/json" }),
+  );
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${name}.json`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
   return true;
 }
 
