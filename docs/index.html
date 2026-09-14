@@ -73,14 +73,13 @@
 
       <!-- ------------------------------------------------ History -->
       <section id="view-history" class="view" hidden>
-        <div class="card data-tools">
+        <div style="margin-bottom: 12px">
+          <label for="history-filter">Exercise</label>
+          <select id="history-filter"></select>
+        </div>
+        <div id="history-list" class="stack"></div>
+        <div class="card data-tools" style="margin-top: 16px">
           <h2>Data backup</h2>
-          <p class="muted">
-            Your workouts live only on this phone. Export sends a backup file to
-            the share sheet &mdash; pick Google Drive. Import restores one
-            (choose Drive in the file picker).
-          </p>
-          <p class="muted" id="backup-status"></p>
           <div class="row" style="margin-top: 12px">
             <button class="btn small ghost" data-action="export-data">
               Export data
@@ -91,11 +90,6 @@
           </div>
           <input id="import-file" type="file" hidden />
         </div>
-        <div>
-          <label for="history-filter">Exercise</label>
-          <select id="history-filter"></select>
-        </div>
-        <div id="history-list" class="stack"></div>
       </section>
     </main>
 

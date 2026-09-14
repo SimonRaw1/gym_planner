@@ -30,8 +30,6 @@ then from the **History** tab:
 - **Import data** opens the file picker. Choose the backup from Google Drive.
   Importing replaces everything currently on the phone.
 
-The History tab shows when you last exported.
-
 ## Using it
 
 - **Train** — start from a plan or go freestyle. Each exercise shows its target,

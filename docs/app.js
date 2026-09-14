@@ -987,13 +987,6 @@ function openExercisePicker(onPick) {
 
 // ---------------------------------------------------------- view: history
 
-function renderBackupStatus() {
-  const last = dataCache?.last_export;
-  $("#backup-status").textContent = last
-    ? `Last exported ${dayLabel(last)}.`
-    : "Not exported yet.";
-}
-
 function renderHistoryFilter() {
   const logged = new Set(
     state.history.flatMap((s) => s.sets.map((x) => x.exercise_id)),
@@ -1048,7 +1041,6 @@ function renderExerciseHistory(exerciseId) {
 }
 
 function renderHistory() {
-  renderBackupStatus();
   renderHistoryFilter();
   if (state.historyExercise !== null)
     return renderExerciseHistory(state.historyExercise);
@@ -1421,7 +1413,6 @@ const actions = {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
     await writeLocalData({ ...data, last_export: nowTs() });
-    renderBackupStatus();
     toast("Backup exported");
   },
 

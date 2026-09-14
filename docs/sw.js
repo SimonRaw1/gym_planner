@@ -5,7 +5,7 @@
  * new files and the one after that runs them.
  */
 
-const CACHE = "gym-planner-v8";
+const CACHE = "gym-planner-v10";
 const SHELL = [
   "./",
   "index.html",
@@ -21,7 +21,11 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((cache) => cache.addAll(SHELL))
+      // cache: "reload" skips the browser's HTTP cache (GitHub Pages sends
+      // max-age=600), so a new worker never stores stale files beside new ones.
+      .then((cache) =>
+        cache.addAll(SHELL.map((url) => new Request(url, { cache: "reload" }))),
+      )
       .then(() => self.skipWaiting()),
   );
 });
