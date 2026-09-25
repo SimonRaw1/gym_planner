@@ -723,27 +723,6 @@ function renderTrain() {
   idle.hidden = !!state.session;
   active.hidden = !state.session;
   if (state.session) renderActiveSession();
-  else renderIdle();
-}
-
-function renderIdle() {
-  const plans = state.plans;
-  $("#start-plans").innerHTML = plans.length
-    ? plans
-        .map(
-          (p) => `
-        <button class="picker-item" data-action="start-plan" data-id="${p.id}">
-          <span class="grow">
-            <strong>${esc(p.name)}</strong><br>
-            <span class="muted">${p.exercise_count} exercise${p.exercise_count === 1 ? "" : "s"}${
-              p.last_done ? ` &middot; last ${esc(dayLabel(p.last_done))}` : ""
-            }</span>
-          </span>
-          <span class="pill">Start</span>
-        </button>`,
-        )
-        .join("")
-    : '<p class="muted">No plans yet. Build one on the Plans tab.</p>';
 }
 
 function renderStats(stats) {
@@ -862,8 +841,8 @@ function renderPlans() {
           ${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}
           <div class="row" style="margin-top:12px">
             <button class="btn small ghost" data-action="edit-plan" data-id="${p.id}">Edit</button>
-            <button class="btn small ghost" data-action="start-plan" data-id="${p.id}">Start</button>
             <button class="btn small danger" data-action="del-plan" data-id="${p.id}">Delete</button>
+            <button class="btn small ghost" style="margin-left:auto" data-action="start-plan" data-id="${p.id}">Start</button>
           </div>
         </div>`,
         )
@@ -1121,12 +1100,10 @@ function setView(view) {
 async function refresh() {
   try {
     if (state.view === "train") {
-      const [plans, session, stats] = await Promise.all([
-        api("/plans"),
+      const [session, stats] = await Promise.all([
         api("/sessions/active"),
         api("/stats"),
       ]);
-      state.plans = plans;
       state.session = session;
       renderTrain();
       if (!session) renderStats(stats);
@@ -1155,6 +1132,10 @@ const actions = {
     });
     closeSheet();
     setView("train");
+  },
+
+  "select-plan"() {
+    setView("plans");
   },
 
   async "start-freestyle"() {
