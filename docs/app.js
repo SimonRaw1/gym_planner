@@ -547,19 +547,42 @@ function buzz(ms = 12) {
 
 // ------------------------------------------------------------------ sheet
 
-function openSheet(title, html) {
+/** `foot` is the sheet's main button; it sits below the scrolling body so it
+ * stays on screen however long the form is. */
+function openSheet(title, html, foot = "") {
   $("#sheet-title").textContent = title;
   $("#sheet-body").innerHTML = html;
+  $("#sheet-foot").innerHTML = foot;
+  $("#sheet-foot").hidden = !foot;
   $("#sheet").hidden = false;
   document.body.style.overflow = "hidden";
+  fitSheet();
 }
 
 function closeSheet() {
   $("#sheet").hidden = true;
   $("#sheet-body").innerHTML = "";
+  $("#sheet-foot").innerHTML = "";
   document.body.style.overflow = "";
   state.draft = null;
 }
+
+/* A phone keyboard covers the bottom of the screen without shrinking the
+ * layout, so a sheet pinned to the bottom ends up behind it. Size the sheet's
+ * backdrop to the visual viewport (what is still showing) instead. */
+function fitSheet() {
+  const vv = window.visualViewport;
+  const backdrop = $("#sheet");
+  if (!vv || backdrop.hidden) return;
+  backdrop.style.top = `${vv.offsetTop}px`;
+  backdrop.style.height = `${vv.height}px`;
+  const focused = document.activeElement;
+  if (focused?.matches("input, select, textarea") && backdrop.contains(focused))
+    focused.scrollIntoView({ block: "nearest" });
+}
+
+window.visualViewport?.addEventListener("resize", fitSheet);
+window.visualViewport?.addEventListener("scroll", fitSheet);
 
 // ------------------------------------------------------------ drag to sort
 
@@ -1023,9 +1046,11 @@ function planEditorHtml() {
       ${weekSelectHtml(d.group_id)}
       ${items ? `<div class="stack" data-drag-list="plan">${items}</div>` : '<p class="muted">No exercises yet.</p>'}
       <button class="btn ghost" data-action="draft-add">+ Add exercise</button>
-      <button class="btn good" data-action="draft-save">Save plan</button>
     </div>`;
 }
+
+const PLAN_SAVE =
+  '<button class="btn good" data-action="draft-save">Save plan</button>';
 
 /** Which week the plan sits in, with weeks listed under their block. */
 function weekSelectHtml(groupId) {
@@ -1065,7 +1090,7 @@ function openPlanEditor(plan, groupId = null) {
         })),
       }
     : { id: null, name: "", notes: "", group_id: groupId, items: [] };
-  openSheet(plan ? "Edit plan" : "New plan", planEditorHtml());
+  openSheet(plan ? "Edit plan" : "New plan", planEditorHtml(), PLAN_SAVE);
 }
 
 /** Pull the sheet's inputs into the draft before any re-render or save. */
@@ -1101,11 +1126,10 @@ function openGroupSheet(title, name, attrs) {
   openSheet(
     title,
     `
-    <div class="stack">
-      <div><label for="group-name">Name</label>
-        <input id="group-name" value="${esc(name)}" maxlength="80"></div>
-      <button class="btn good" data-action="group-save" ${attrs}>Save</button>
-    </div>`,
+    <div><label for="group-name">Name</label>
+      <input id="group-name" value="${esc(name)}" maxlength="80"
+        enterkeyhint="done" data-enter="group-save"></div>`,
+    `<button class="btn good" data-action="group-save" ${attrs}>Save</button>`,
   );
   $("#group-name").select();
 }
@@ -1321,11 +1345,10 @@ const actions = {
     openSheet(
       "Name your session",
       `
-        <div class="stack">
-          <div><label for="freestyle-name">Session name</label>
-            <input id="freestyle-name" value="" placeholder="e.g. Upper body" maxlength="80" autofocus></div>
-          <button class="btn" data-action="begin-freestyle">Start session</button>
-        </div>`,
+        <div><label for="freestyle-name">Session name</label>
+          <input id="freestyle-name" value="" placeholder="e.g. Upper body" maxlength="80"
+            enterkeyhint="go" data-enter="begin-freestyle"></div>`,
+      '<button class="btn" data-action="begin-freestyle">Start session</button>',
     );
     $("#freestyle-name").focus();
   },
@@ -1385,11 +1408,9 @@ const actions = {
     openSheet(
       "Finish workout",
       `
-      <div class="stack">
-        <div><label>How did it go?</label>
-          <textarea id="finish-notes" rows="3" placeholder="optional"></textarea></div>
-        <button class="btn good" data-action="finish-confirm">Save workout</button>
-      </div>`,
+      <div><label for="finish-notes">How did it go?</label>
+        <textarea id="finish-notes" rows="3" placeholder="optional"></textarea></div>`,
+      '<button class="btn good" data-action="finish-confirm">Save workout</button>',
     );
   },
 
@@ -1502,7 +1523,7 @@ const actions = {
         rest_seconds: 90,
       });
       state.draft = draft;
-      openSheet(draft.id ? "Edit plan" : "New plan", planEditorHtml());
+      openSheet(draft.id ? "Edit plan" : "New plan", planEditorHtml(), PLAN_SAVE);
     });
   },
 
@@ -1576,8 +1597,8 @@ const actions = {
           <div class="field"><label>Equipment</label>
             <input id="nx-equip" placeholder="cable"></div>
         </div>
-        <button class="btn good" data-action="new-exercise-save">Create</button>
       </div>`,
+      '<button class="btn good" data-action="new-exercise-save">Create</button>',
     );
     state.onPick = onPick;
   },
@@ -1853,6 +1874,14 @@ function backupToData(imported) {
       : null,
   };
 }
+
+// The keyboard's Go/Done key on a one-field sheet presses its main button.
+document.addEventListener("keydown", (ev) => {
+  const action = ev.target.dataset?.enter;
+  if (ev.key !== "Enter" || !action) return;
+  ev.preventDefault();
+  $(`#sheet-foot [data-action="${action}"]`)?.click();
+});
 
 // "toggle" doesn't bubble, so listen in the capture phase.
 document.addEventListener(

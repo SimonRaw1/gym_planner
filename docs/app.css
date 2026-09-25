@@ -409,9 +409,14 @@ label {
 
 /* ---------------------------------------------------------------- sheet */
 
+/* top and height are set from the visual viewport in fitSheet(), so the sheet
+ * sits above the on-screen keyboard. */
 .sheet-backdrop {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
   z-index: 20;
   background: rgba(0, 0, 0, 0.55);
   display: flex;
@@ -419,7 +424,7 @@ label {
 }
 .sheet {
   width: 100%;
-  max-height: 88vh;
+  max-height: 88%;
   background: var(--surface);
   border-radius: 18px 18px 0 0;
   border-top: 1px solid var(--line);
@@ -441,9 +446,20 @@ label {
   border-bottom: 1px solid var(--line);
 }
 .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 14px 16px calc(env(safe-area-inset-bottom) + 20px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+}
+.sheet-foot {
+  flex: none;
+  padding: 12px 16px calc(env(safe-area-inset-bottom) + 12px);
+  border-top: 1px solid var(--line);
+}
+/* With a footer, the body no longer touches the bottom edge. */
+.sheet-body:has(+ .sheet-foot:not([hidden])) {
+  padding-bottom: 16px;
 }
 
 .picker-item {
