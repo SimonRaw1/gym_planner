@@ -827,6 +827,38 @@ function stopRest() {
   state.rest = null;
 }
 
+// ---------------------------------------------------------- screen wake lock
+
+/* Keep the screen on while a workout is running so the rest timer stays in
+ * view. The browser drops the lock whenever the app is hidden, so it is taken
+ * again on return. Where unsupported or refused (e.g. battery saver), the
+ * screen just sleeps as before. */
+let wakeLock = null; // WakeLockSentinel, or "pending" while being requested
+
+async function syncWakeLock() {
+  const wanted = !!state.session && document.visibilityState === "visible";
+  if (wanted && !wakeLock && navigator.wakeLock) {
+    wakeLock = "pending";
+    try {
+      const lock = await navigator.wakeLock.request("screen");
+      lock.addEventListener("release", () => {
+        if (wakeLock === lock) wakeLock = null;
+      });
+      wakeLock = lock;
+    } catch {
+      wakeLock = null;
+      return;
+    }
+    syncWakeLock(); // the workout may have ended while we waited
+  } else if (!wanted && wakeLock && wakeLock !== "pending") {
+    const lock = wakeLock;
+    wakeLock = null;
+    lock.release().catch(() => {});
+  }
+}
+
+document.addEventListener("visibilitychange", syncWakeLock);
+
 // ------------------------------------------------------------ view: train
 
 /** Set rows, warm-ups marked "W" and working sets numbered 1, 2, 3...
@@ -848,6 +880,7 @@ function setRowsHtml(sets, end = () => "<span></span>") {
 /** The Train tab shows the session screen while one is open, otherwise the
  * start page, with a card to get back into a session still running. */
 function renderTrain() {
+  syncWakeLock();
   if (!state.session) closeSession();
   $("#train-idle").hidden = state.inSession;
   $("#train-active").hidden = !state.inSession;
@@ -1715,6 +1748,13 @@ const actions = {
   async "del-session"(el) {
     if (!confirm("Delete this workout for good?")) return;
     await api(`/sessions/${el.dataset.id}`, { method: "DELETE" });
+    if (state.session?.id === Number(el.dataset.id)) {
+      // Deleted the workout still running: stop keeping the screen on.
+      state.session = null;
+      stopRest();
+      $("#topbar-note").textContent = "";
+      syncWakeLock();
+    }
     closeSheet();
     refresh();
   },
@@ -2024,6 +2064,7 @@ $("#import-file").addEventListener("change", async (ev) => {
     stopRest();
     $("#topbar-note").textContent = "";
     state.session = null;
+    syncWakeLock();
     state.exercises = await api("/exercises");
     toast("Backup restored");
     refresh();

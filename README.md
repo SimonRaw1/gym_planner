@@ -39,7 +39,8 @@ then from the **History** tab:
   lock the phone or close the app and pick up where you were. The phone's back
   button leaves the workout without ending it, returning to the tab you started
   it from; **Continue session** on the Train tab takes you back in. Only one
-  session runs at a time.
+  session runs at a time. While a session is running the screen stays on (where
+  the browser supports it; battery saver can prevent it).
 - **Reorder or remove exercises** — press the &#8942;&#8942; grip on an exercise
   (in a workout or the plan editor) and drag. Drop it where you want it, or onto
   the trash bin that appears at the bottom to delete it. Removing an exercise
