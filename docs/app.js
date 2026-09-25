@@ -9,12 +9,30 @@ const state = {
   view: "train",
   exercises: [],
   plans: [],
+  groups: [], // blocks (parent_id null) and the weeks inside them
+  openGroups: loadOpenGroups(), // group ids expanded on the Plans tab
   session: null,
   history: [],
   historyExercise: null, // exercise id the History list is filtered to
   draft: null, // plan being edited in the sheet
   rest: null, // { until: epochMs, timer: intervalId }
 };
+
+function loadOpenGroups() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem("open-groups") || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveOpenGroups() {
+  try {
+    localStorage.setItem("open-groups", JSON.stringify([...state.openGroups]));
+  } catch {
+    // Only remembers which groups are expanded; fine to lose.
+  }
+}
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -202,6 +220,34 @@ function sessionDetail(data, id) {
   return { ...session, sets, items, previous };
 }
 
+const maxId = (items) =>
+  items.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0);
+
+/** Plan groups arrived after version 1 data, so older data has none. */
+function ensureGroups(data) {
+  if (!Array.isArray(data.groups)) data.groups = [];
+  if (!data.nextIds.group) data.nextIds.group = maxId(data.groups) + 1;
+}
+
+/** Natural order, so "Week 10" comes after "Week 9". */
+const byName = (a, b) =>
+  a.name.localeCompare(b.name, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+
+/** Plans live in a week (a group with a parent block) or in no group. */
+function weekId(data, id) {
+  const week = data.groups.find((g) => g.id === Number(id));
+  return week && week.parent_id != null ? week.id : null;
+}
+
+function findGroup(data, id) {
+  const group = data.groups.find((g) => g.id === Number(id));
+  if (!group) throw new Error("Group not found");
+  return group;
+}
+
 function planSummary(data, plan) {
   const last = data.sessions
     .filter((session) => session.plan_id === plan.id)
@@ -219,6 +265,7 @@ async function api(path, options = {}) {
   const body = bodyOf(options);
   const match = (pattern) => path.match(pattern);
   let result = null;
+  ensureGroups(data);
 
   if (path === "/exercises" && method === "GET")
     result = [...data.exercises].sort(
@@ -245,12 +292,13 @@ async function api(path, options = {}) {
   } else if (path === "/plans" && method === "GET")
     result = data.plans
       .map((plan) => planSummary(data, plan))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort(byName);
   else if (path === "/plans" && method === "POST") {
     const plan = {
       id: data.nextIds.plan++,
       name: body.name.trim(),
       notes: body.notes || "",
+      group_id: weekId(data, body.group_id),
       created_at: nowTs(),
       items: body.items || [],
     };
@@ -276,6 +324,7 @@ async function api(path, options = {}) {
     Object.assign(plan, {
       name: body.name.trim(),
       notes: body.notes || "",
+      group_id: weekId(data, body.group_id),
       items: body.items || [],
     });
     result = plan;
@@ -283,6 +332,36 @@ async function api(path, options = {}) {
     const id = Number(match(/^\/plans\/(\d+)$/)[1]);
     data.plans = data.plans.filter((plan) => plan.id !== id);
     result = null;
+  } else if (path === "/groups" && method === "GET")
+    result = [...data.groups].sort(byName);
+  else if (path === "/groups" && method === "POST") {
+    const parent =
+      body.parent_id == null ? null : findGroup(data, body.parent_id);
+    if (parent && parent.parent_id != null)
+      throw new Error("Weeks can only go inside a block");
+    const group = {
+      id: data.nextIds.group++,
+      name: body.name.trim(),
+      parent_id: parent ? parent.id : null,
+    };
+    data.groups.push(group);
+    result = group;
+  } else if (match(/^\/groups\/(\d+)$/) && method === "PUT") {
+    const group = findGroup(data, match(/^\/groups\/(\d+)$/)[1]);
+    group.name = body.name.trim();
+    result = group;
+  } else if (match(/^\/groups\/(\d+)$/) && method === "DELETE") {
+    // A block takes its weeks with it; their plans move to "Other plans".
+    const id = Number(match(/^\/groups\/(\d+)$/)[1]);
+    const gone = new Set(
+      data.groups
+        .filter((g) => g.id === id || g.parent_id === id)
+        .map((g) => g.id),
+    );
+    data.groups = data.groups.filter((g) => !gone.has(g.id));
+    data.plans.forEach((plan) => {
+      if (gone.has(plan.group_id)) plan.group_id = null;
+    });
   } else if (path === "/sessions/active" && method === "GET") {
     const session = data.sessions
       .filter((item) => !item.finished_at)
@@ -822,11 +901,72 @@ function renderActiveSession() {
 
 // ------------------------------------------------------------ view: plans
 
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** Plans tab: blocks, each holding weeks, each holding plans. Plans outside
+ * any week are listed after the blocks. */
 function renderPlans() {
-  $("#plan-list").innerHTML = state.plans.length
-    ? state.plans
-        .map(
-          (p) => `
+  const weeks = new Set(
+    state.groups.filter((g) => g.parent_id != null).map((g) => g.id),
+  );
+  const plansIn = (id) =>
+    state.plans.filter((p) => (weeks.has(p.group_id) ? p.group_id : null) === id);
+  const blocks = state.groups.filter((g) => g.parent_id == null);
+  const loose = plansIn(null);
+
+  const groupHtml = (group, inner, count, tools) => `
+    <details class="group" data-group="${group.id}"${state.openGroups.has(group.id) ? " open" : ""}>
+      <summary>
+        <span class="chev" aria-hidden="true"></span>
+        <span class="grow group-name">${esc(group.name)}</span>
+        <span class="pill">${count}</span>
+      </summary>
+      <div class="group-body stack">
+        ${inner}
+        <div class="row wrap">${tools}</div>
+      </div>
+    </details>`;
+  const editTools = (group) => `
+    <button class="btn small ghost" data-action="rename-group" data-id="${group.id}">Rename</button>
+    <button class="btn small danger" data-action="del-group" data-id="${group.id}">Delete</button>`;
+
+  const blocksHtml = blocks
+    .map((block) => {
+      const blockWeeks = state.groups.filter((g) => g.parent_id === block.id);
+      const weeksHtml = blockWeeks
+        .map((week) => {
+          const plans = plansIn(week.id);
+          return groupHtml(
+            week,
+            plans.map(planCardHtml).join("") ||
+              '<p class="muted">No plans in this week yet.</p>',
+            plural(plans.length, "plan"),
+            `<button class="btn small ghost" data-action="new-plan" data-group="${week.id}">+ Plan</button>
+            ${editTools(week)}`,
+          );
+        })
+        .join("");
+      return groupHtml(
+        block,
+        weeksHtml || '<p class="muted">No weeks in this block yet.</p>',
+        plural(blockWeeks.length, "week"),
+        `<button class="btn small ghost" data-action="new-week" data-parent="${block.id}">+ Week</button>
+        ${editTools(block)}`,
+      );
+    })
+    .join("");
+
+  const looseHtml = loose.length
+    ? `${blocks.length ? '<h3 class="group-label">Other plans</h3>' : ""}${loose.map(planCardHtml).join("")}`
+    : "";
+
+  $("#plan-list").innerHTML =
+    blocksHtml + looseHtml ||
+    '<p class="empty">No plans yet.<br>A plan is a named list of exercises with targets.<br>Group plans into blocks and weeks with + New block.</p>';
+}
+
+function planCardHtml(p) {
+  return `
         <div class="card">
           <div class="spread">
             <div class="grow">
@@ -844,10 +984,7 @@ function renderPlans() {
             <button class="btn small danger" data-action="del-plan" data-id="${p.id}">Delete</button>
             <button class="btn small ghost" style="margin-left:auto" data-action="start-plan" data-id="${p.id}">Start</button>
           </div>
-        </div>`,
-        )
-        .join("")
-    : '<p class="empty">No plans yet.<br>A plan is a named list of exercises with targets.</p>';
+        </div>`;
 }
 
 function planEditorHtml() {
@@ -883,18 +1020,41 @@ function planEditorHtml() {
         <input id="draft-name" value="${esc(d.name)}" placeholder="Push day"></div>
       <div><label>Notes</label>
         <input id="draft-notes" value="${esc(d.notes)}" placeholder="optional"></div>
+      ${weekSelectHtml(d.group_id)}
       ${items ? `<div class="stack" data-drag-list="plan">${items}</div>` : '<p class="muted">No exercises yet.</p>'}
       <button class="btn ghost" data-action="draft-add">+ Add exercise</button>
       <button class="btn good" data-action="draft-save">Save plan</button>
     </div>`;
 }
 
-function openPlanEditor(plan) {
+/** Which week the plan sits in, with weeks listed under their block. */
+function weekSelectHtml(groupId) {
+  const blocks = state.groups.filter((g) => g.parent_id == null);
+  const options = blocks
+    .map((block) => {
+      const weeks = state.groups.filter((g) => g.parent_id === block.id);
+      if (!weeks.length) return "";
+      return `<optgroup label="${esc(block.name)}">${weeks
+        .map(
+          (w) =>
+            `<option value="${w.id}"${w.id === groupId ? " selected" : ""}>${esc(block.name)} › ${esc(w.name)}</option>`,
+        )
+        .join("")}</optgroup>`;
+    })
+    .join("");
+  if (!options) return "";
+  return `
+      <div><label for="draft-group">Week</label>
+        <select id="draft-group"><option value="">No week</option>${options}</select></div>`;
+}
+
+function openPlanEditor(plan, groupId = null) {
   state.draft = plan
     ? {
         id: plan.id,
         name: plan.name,
         notes: plan.notes,
+        group_id: plan.group_id ?? null,
         items: plan.items.map((it) => ({
           exercise_id: it.exercise_id,
           name: it.name,
@@ -904,7 +1064,7 @@ function openPlanEditor(plan) {
           rest_seconds: it.rest_seconds,
         })),
       }
-    : { id: null, name: "", notes: "", items: [] };
+    : { id: null, name: "", notes: "", group_id: groupId, items: [] };
   openSheet(plan ? "Edit plan" : "New plan", planEditorHtml());
 }
 
@@ -916,6 +1076,8 @@ function syncDraftFromInputs() {
   const notesEl = $("#draft-notes");
   if (nameEl) d.name = nameEl.value;
   if (notesEl) d.notes = notesEl.value;
+  const groupEl = $("#draft-group");
+  if (groupEl) d.group_id = groupEl.value ? Number(groupEl.value) : null;
   $$("#sheet-body input[data-idx]").forEach((input) => {
     const item = d.items[Number(input.dataset.idx)];
     if (!item) return;
@@ -932,6 +1094,20 @@ function syncDraftFromInputs() {
 function redrawDraft() {
   syncDraftFromInputs();
   $("#sheet-body").innerHTML = planEditorHtml();
+}
+
+/** Name a new block or week, or rename one. `attrs` tells group-save which. */
+function openGroupSheet(title, name, attrs) {
+  openSheet(
+    title,
+    `
+    <div class="stack">
+      <div><label for="group-name">Name</label>
+        <input id="group-name" value="${esc(name)}" maxlength="80"></div>
+      <button class="btn good" data-action="group-save" ${attrs}>Save</button>
+    </div>`,
+  );
+  $("#group-name").select();
 }
 
 // ---------------------------------------------------------- exercise picker
@@ -1108,7 +1284,10 @@ async function refresh() {
       renderTrain();
       if (!session) renderStats(stats);
     } else if (state.view === "plans") {
-      state.plans = await api("/plans");
+      [state.plans, state.groups] = await Promise.all([
+        api("/plans"),
+        api("/groups"),
+      ]);
       renderPlans();
     } else {
       [state.history, state.exercises] = await Promise.all([
@@ -1237,8 +1416,67 @@ const actions = {
     refresh();
   },
 
-  "new-plan"() {
-    openPlanEditor(null);
+  "new-plan"(el) {
+    openPlanEditor(null, el.dataset.group ? Number(el.dataset.group) : null);
+  },
+
+  "new-block"() {
+    const count = state.groups.filter((g) => g.parent_id == null).length;
+    openGroupSheet("New block", `Block ${count + 1}`, "");
+  },
+
+  "new-week"(el) {
+    const parent = Number(el.dataset.parent);
+    const count = state.groups.filter((g) => g.parent_id === parent).length;
+    openGroupSheet(
+      "New week",
+      `Week ${count + 1}`,
+      `data-parent="${parent}"`,
+    );
+  },
+
+  "rename-group"(el) {
+    const group = state.groups.find((g) => g.id === Number(el.dataset.id));
+    if (!group) return;
+    openGroupSheet(
+      group.parent_id == null ? "Rename block" : "Rename week",
+      group.name,
+      `data-id="${group.id}"`,
+    );
+  },
+
+  async "group-save"(el) {
+    const name = $("#group-name").value.trim();
+    if (!name) return toast("Give it a name");
+    if (el.dataset.id) {
+      await api(`/groups/${el.dataset.id}`, { method: "PUT", body: { name } });
+    } else {
+      const parentId = el.dataset.parent ? Number(el.dataset.parent) : null;
+      const group = await api("/groups", {
+        method: "POST",
+        body: { name, parent_id: parentId },
+      });
+      // Show what was just made.
+      state.openGroups.add(group.id);
+      if (parentId) state.openGroups.add(parentId);
+      saveOpenGroups();
+    }
+    closeSheet();
+    refresh();
+  },
+
+  async "del-group"(el) {
+    const group = state.groups.find((g) => g.id === Number(el.dataset.id));
+    if (!group) return;
+    const weeks = state.groups.filter((g) => g.parent_id === group.id).length;
+    const what =
+      group.parent_id == null && weeks
+        ? `${group.name} and its ${plural(weeks, "week")}`
+        : group.name;
+    if (!confirm(`Delete ${what}? Its plans are kept under Other plans.`))
+      return;
+    await api(`/groups/${group.id}`, { method: "DELETE" });
+    refresh();
   },
 
   async "edit-plan"(el) {
@@ -1288,6 +1526,7 @@ const actions = {
     const body = {
       name: d.name,
       notes: d.notes,
+      group_id: d.group_id,
       items: d.items.map((it) => ({
         exercise_id: it.exercise_id,
         target_sets: it.target_sets,
@@ -1452,8 +1691,15 @@ async function shareJson(name, json) {
   return true;
 }
 
-/** Plans with exercises referenced by name, since ids differ between phones. */
+/** Plans with exercises referenced by name, since ids differ between phones.
+ * A plan in a week carries its place as `group: [block name, week name]`. */
 function plansToExport(data, stamp) {
+  const groups = Array.isArray(data.groups) ? data.groups : [];
+  const groupPath = (id) => {
+    const week = groups.find((g) => g.id === id && g.parent_id != null);
+    const block = week && groups.find((g) => g.id === week.parent_id);
+    return block ? [block.name, week.name] : null;
+  };
   return {
     kind: "gym-planner-plans",
     version: 1,
@@ -1461,6 +1707,7 @@ function plansToExport(data, stamp) {
     plans: data.plans.map((plan) => ({
       name: plan.name,
       notes: plan.notes || "",
+      group: groupPath(plan.group_id),
       items: plan.items.map((item) => {
         const exercise = data.exercises.find((e) => e.id === item.exercise_id);
         return {
@@ -1513,8 +1760,34 @@ function addImportedPlans(data, imported) {
     data.exercises.push(created);
     return created.id;
   };
-  const freeName = (name) => {
-    const taken = new Set(data.plans.map((p) => p.name.toLowerCase()));
+  ensureGroups(data);
+  /** Find or create the block and week a plan was exported from. */
+  const importedWeekId = (path) => {
+    if (!Array.isArray(path) || path.length !== 2) return null;
+    let parentId = null;
+    for (const raw of path) {
+      const name = String(raw || "").trim();
+      if (!name) return null;
+      let group = data.groups.find(
+        (g) =>
+          g.parent_id === parentId &&
+          g.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (!group) {
+        group = { id: data.nextIds.group++, name, parent_id: parentId };
+        data.groups.push(group);
+      }
+      parentId = group.id;
+    }
+    return parentId;
+  };
+  // Names only need to be unique within a week: every week can have "Day 1".
+  const freeName = (name, groupId) => {
+    const taken = new Set(
+      data.plans
+        .filter((p) => (p.group_id ?? null) === groupId)
+        .map((p) => p.name.toLowerCase()),
+    );
     if (!taken.has(name.toLowerCase())) return name;
     let n = 2;
     while (taken.has(`${name} (${n})`.toLowerCase())) n++;
@@ -1534,10 +1807,12 @@ function addImportedPlans(data, imported) {
         rest_seconds: Number(item.rest_seconds) || 0,
       });
     });
+    const groupId = importedWeekId(plan.group);
     data.plans.push({
       id: data.nextIds.plan++,
-      name: freeName(String(plan.name || "").trim() || "Imported plan"),
+      name: freeName(String(plan.name || "").trim() || "Imported plan", groupId),
       notes: plan.notes || "",
+      group_id: groupId,
       created_at: nowTs(),
       items,
     });
@@ -1554,20 +1829,21 @@ function backupToData(imported) {
   ) {
     throw new Error("That file is not a Gym Planner backup");
   }
-  const maxId = (items) =>
-    items.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0);
+  const groups = Array.isArray(imported.groups) ? imported.groups : [];
   return {
     version: 1,
     // Derived rather than trusted, so new records can never reuse an id.
     nextIds: {
       exercise: maxId(imported.exercises) + 1,
       plan: maxId(imported.plans) + 1,
+      group: maxId(groups) + 1,
       session: maxId(imported.sessions) + 1,
       set:
         maxId(imported.sessions.flatMap((session) => session.sets || [])) + 1,
     },
     exercises: imported.exercises,
     plans: imported.plans.map((plan) => ({ ...plan, items: plan.items || [] })),
+    groups,
     sessions: imported.sessions.map((session) => ({
       ...session,
       sets: session.sets || [],
@@ -1577,6 +1853,19 @@ function backupToData(imported) {
       : null,
   };
 }
+
+// "toggle" doesn't bubble, so listen in the capture phase.
+document.addEventListener(
+  "toggle",
+  (ev) => {
+    const id = Number(ev.target.dataset?.group);
+    if (!id) return;
+    if (ev.target.open) state.openGroups.add(id);
+    else state.openGroups.delete(id);
+    saveOpenGroups();
+  },
+  true,
+);
 
 $("#history-filter").addEventListener("change", (ev) => {
   state.historyExercise = ev.target.value ? Number(ev.target.value) : null;

@@ -42,6 +42,9 @@ then from the **History** tab:
   from a workout also removes the sets logged for it, after asking.
 - **Plans** — a plan is a named, ordered list of exercises with target sets,
   reps, RPE and rest. Editing a plan never touches workouts already logged.
+  Group plans with **+ New block** (e.g. Block 1), then **+ Week** inside it;
+  put a plan in a week with **+ Plan** there or the Week picker in the plan
+  editor. Deleting a block or week keeps its plans under Other plans.
   **Export plans** shares just your plans as a file; **Import plans** adds the
   plans from such a file to your list (nothing is replaced; missing exercises
   are created).
