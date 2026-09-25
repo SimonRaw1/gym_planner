@@ -33,7 +33,8 @@ then from the **History** tab:
 ## Using it
 
 - **Train** — start from a plan or go freestyle. Each exercise shows its target,
-  what you managed last time, and a log box (weight, reps, RPE). Logging a set
+  what you managed last time, and a log box (weight, reps, RPE, and a **Warm up**
+  tick box; warm-up sets show as W and don't count toward the target). Logging a set
   starts the rest timer in the header. An unfinished session is kept, so you can
   lock the phone or close the app and pick up where you were. The phone's back
   button leaves the workout without ending it, returning to the tab you started
@@ -53,7 +54,7 @@ then from the **History** tab:
   are created).
 - **History** — past sessions with set count and total volume; tap one to see
   every set. Pick an exercise in the filter to see every time you did it, newest
-  first.
+  first; tick **Hide warm-up sets** to see working sets only.
 
 Weights are in kg throughout. To switch to lb, change the `kg` labels in
 [docs/app.js](docs/app.js).

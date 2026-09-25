@@ -10,30 +10,38 @@ const state = {
   exercises: [],
   plans: [],
   groups: [], // blocks (parent_id null) and the weeks inside them
-  openGroups: loadOpenGroups(), // group ids expanded on the Plans tab
+  openGroups: new Set(loadPref("open-groups", [])), // expanded on the Plans tab
   session: null,
   inSession: false, // the session screen is showing (vs. just running)
   sessionFrom: "train", // tab the back button returns to from the session
   history: [],
   historyExercise: null, // exercise id the History list is filtered to
+  hideWarmups: loadPref("hide-warmups", false), // in that filtered list
   draft: null, // plan being edited in the sheet
   rest: null, // { until: epochMs, timer: intervalId }
 };
 
-function loadOpenGroups() {
+/* Small display preferences live in localStorage, apart from the workout
+ * data; losing them is harmless. */
+function loadPref(key, fallback) {
   try {
-    return new Set(JSON.parse(localStorage.getItem("open-groups") || "[]"));
+    const value = localStorage.getItem(key);
+    return value === null ? fallback : JSON.parse(value);
   } catch {
-    return new Set();
+    return fallback;
+  }
+}
+
+function savePref(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage unavailable: the preference just won't stick.
   }
 }
 
 function saveOpenGroups() {
-  try {
-    localStorage.setItem("open-groups", JSON.stringify([...state.openGroups]));
-  } catch {
-    // Only remembers which groups are expanded; fine to lose.
-  }
+  savePref("open-groups", [...state.openGroups]);
 }
 
 const $ = (sel) => document.querySelector(sel);
@@ -821,6 +829,22 @@ function stopRest() {
 
 // ------------------------------------------------------------ view: train
 
+/** Set rows, warm-ups marked "W" and working sets numbered 1, 2, 3...
+ * `end(set)` fills the last column. */
+function setRowsHtml(sets, end = () => "<span></span>") {
+  let n = 0;
+  return sets
+    .map(
+      (x) => `
+          <div class="setrow${x.warmup ? " warmup" : ""}">
+            <span class="idx"${x.warmup ? ' title="Warm-up set"' : ""}>${x.warmup ? "W" : ++n}</span>
+            <span>${x.reps} &times; ${fmtWeight(x.weight)} kg${x.rpe != null ? ` · RPE ${x.rpe}` : ""}</span>
+            ${end(x)}
+          </div>`,
+    )
+    .join("");
+}
+
 /** The Train tab shows the session screen while one is open, otherwise the
  * start page, with a card to get back into a session still running. */
 function renderTrain() {
@@ -877,8 +901,9 @@ function renderActiveSession() {
     s.items
       .map((item) => {
         const sets = s.sets.filter((x) => x.exercise_id === item.exercise_id);
+        const working = sets.filter((x) => !x.warmup).length;
         const prev = s.previous[String(item.exercise_id)];
-        const done = item.target_sets > 0 && sets.length >= item.target_sets;
+        const done = item.target_sets > 0 && working >= item.target_sets;
 
         const target = item.target_sets
           ? `${item.target_sets} &times; ${item.target_reps}${
@@ -910,21 +935,15 @@ function renderActiveSession() {
                 : ""
             }
           </div>
-          <span class="pill">${sets.length}${item.target_sets ? `/${item.target_sets}` : ""}</span>
+          <span class="pill">${working}${item.target_sets ? `/${item.target_sets}` : ""}</span>
         </div>
         ${
           sets.length
-            ? `<div class="setlist">${sets
-                .map(
-                  (x, i) => `
-          <div class="setrow">
-            <span class="idx">${i + 1}</span>
-            <span>${x.reps} &times; ${fmtWeight(x.weight)} kg${x.rpe != null ? ` · RPE ${x.rpe}` : ""}</span>
-            <button class="del" data-action="del-set" data-id="${x.id}"
-              aria-label="Delete set">&times;</button>
-          </div>`,
-                )
-                .join("")}</div>`
+            ? `<div class="setlist">${setRowsHtml(
+                sets,
+                (x) => `<button class="del" data-action="del-set" data-id="${x.id}"
+              aria-label="Delete set">&times;</button>`,
+              )}</div>`
             : ""
         }
         <div class="logform" data-ex="${item.exercise_id}" data-rest="${item.rest_seconds}">
@@ -935,6 +954,10 @@ function renderActiveSession() {
           <input type="number" inputmode="decimal" step="0.5" min="1" max="10"
             data-f="rpe" placeholder="RPE" value="${fillRpe}">
           <button class="btn" data-action="log" data-ex="${item.exercise_id}">Log</button>
+          <label class="check">
+            <input type="checkbox" data-f="warmup"${last?.warmup ? " checked" : ""}>
+            Warm up
+          </label>
         </div>
       </article>`;
       })
@@ -1194,6 +1217,8 @@ function renderHistoryFilter() {
     .sort((a, b) => a.name.localeCompare(b.name));
   if (!options.some((e) => e.id === state.historyExercise))
     state.historyExercise = null;
+  $("#hide-warmups-row").hidden = state.historyExercise === null;
+  $("#hide-warmups").checked = state.hideWarmups;
   $("#history-filter").innerHTML =
     '<option value="">All workouts</option>' +
     options
@@ -1204,14 +1229,23 @@ function renderHistoryFilter() {
       .join("");
 }
 
-/** Every session containing one exercise, newest first, with just its sets. */
+/** Every session containing one exercise, newest first, with just its sets
+ * (less the warm-ups, if hidden). */
 function renderExerciseHistory(exerciseId) {
   const sessions = state.history
     .map((s) => ({
       ...s,
-      sets: s.sets.filter((x) => x.exercise_id === exerciseId),
+      sets: s.sets.filter(
+        (x) =>
+          x.exercise_id === exerciseId && !(state.hideWarmups && x.warmup),
+      ),
     }))
     .filter((s) => s.sets.length);
+  if (!sessions.length) {
+    $("#history-list").innerHTML =
+      '<p class="empty">Only warm-up sets logged for this exercise.</p>';
+    return;
+  }
   $("#history-list").innerHTML = sessions
     .map((s) => {
       const top = Math.max(...s.sets.map((x) => x.weight));
@@ -1226,12 +1260,7 @@ function renderExerciseHistory(exerciseId) {
             <span class="pill">top ${fmtWeight(top)} kg</span>
           </div>
           <div class="stack tight" style="margin-top:8px">
-            ${s.sets
-              .map(
-                (x, i) => `<div class="setrow"><span class="idx">${i + 1}</span>
-              <span>${x.reps} &times; ${fmtWeight(x.weight)} kg${x.rpe != null ? ` · RPE ${x.rpe}` : ""}</span><span></span></div>`,
-              )
-              .join("")}
+            ${setRowsHtml(s.sets)}
           </div>
         </button>`;
     })
@@ -1277,12 +1306,7 @@ async function showSessionDetail(id) {
     <div class="card">
       <h3>${esc(name)}</h3>
       <div class="stack tight" style="margin-top:8px">
-        ${sets
-          .map(
-            (x, i) => `<div class="setrow"><span class="idx">${i + 1}</span>
-          <span>${x.reps} &times; ${fmtWeight(x.weight)} kg${x.rpe != null ? ` · RPE ${x.rpe}` : ""}</span><span></span></div>`,
-          )
-          .join("")}
+        ${setRowsHtml(sets)}
       </div>
     </div>`,
       )
@@ -1425,6 +1449,7 @@ const actions = {
     const reps = parseInt(form.querySelector('[data-f="reps"]').value, 10);
     const rpeInput = form.querySelector('[data-f="rpe"]').value;
     const rpe = rpeInput === "" ? null : num(rpeInput);
+    const warmup = form.querySelector('[data-f="warmup"]').checked;
     if (!Number.isFinite(reps) || reps <= 0)
       return toast("Enter the reps first");
     if (rpe !== null && (!Number.isFinite(rpe) || rpe < 1 || rpe > 10)) {
@@ -1436,7 +1461,14 @@ const actions = {
     ).length;
     state.session = await api(`/sessions/${state.session.id}/sets`, {
       method: "POST",
-      body: { exercise_id: exerciseId, set_index: done + 1, reps, weight, rpe },
+      body: {
+        exercise_id: exerciseId,
+        set_index: done + 1,
+        reps,
+        weight,
+        rpe,
+        warmup,
+      },
     });
     buzz();
     renderActiveSession();
@@ -1957,6 +1989,12 @@ document.addEventListener(
   },
   true,
 );
+
+$("#hide-warmups").addEventListener("change", (ev) => {
+  state.hideWarmups = ev.target.checked;
+  savePref("hide-warmups", state.hideWarmups);
+  renderHistory();
+});
 
 $("#history-filter").addEventListener("change", (ev) => {
   state.historyExercise = ev.target.value ? Number(ev.target.value) : null;
