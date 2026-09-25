@@ -13,7 +13,6 @@ const state = {
   openGroups: new Set(loadPref("open-groups", [])), // expanded on the Plans tab
   session: null,
   inSession: false, // the session screen is showing (vs. just running)
-  sessionFrom: "train", // tab the back button returns to from the session
   history: [],
   historyExercise: null, // exercise id the History list is filtered to
   hideWarmups: loadPref("hide-warmups", false), // in that filtered list
@@ -1373,30 +1372,59 @@ function setView(view) {
   refresh();
 }
 
-/* The session screen gets its own history entry, so the phone's back button
- * leaves the workout (which keeps running) and returns to the tab it was
- * opened from, instead of closing the app. */
-function openSession(from) {
-  state.sessionFrom = from;
-  state.inSession = true;
-  if (!history.state?.session) history.pushState({ session: true }, "");
-  setView("train");
+/* Screens stack up from the Train start page, one browser history entry
+ * each, so the phone's back button steps back through them instead of
+ * closing the app: Plans or History go back to Train, and a session (which
+ * keeps running) goes back to wherever it was started. A stack is a list of
+ * screens above the start page, e.g. ["plans", "session"]. */
+
+const currentStack = () => history.state?.stack || [];
+let pendingStack = null; // to push once a history.go() back has landed
+
+function navigate(stack) {
+  const from = currentStack();
+  let keep = 0;
+  while (keep < from.length && from[keep] === stack[keep]) keep++;
+  if (keep === from.length) {
+    pushScreens(stack, keep);
+  } else if (keep === from.length - 1 && stack.length === from.length) {
+    history.replaceState({ stack }, "");
+    showScreen(stack);
+  } else {
+    // Back down to the shared part first; popstate finishes the job.
+    pendingStack = keep < stack.length ? stack : null;
+    history.go(keep - from.length);
+  }
 }
 
-/** Leave the session screen some other way than the back button. */
-function closeSession() {
-  if (!state.inSession) return;
-  state.inSession = false;
-  // Drop our history entry; the popstate this causes finds nothing to do.
-  if (history.state?.session) history.back();
+function pushScreens(stack, from) {
+  for (let i = from; i < stack.length; i++)
+    history.pushState({ stack: stack.slice(0, i + 1) }, "");
+  showScreen(stack);
+}
+
+function showScreen(stack) {
+  const top = stack[stack.length - 1] || "train";
+  state.inSession = top === "session";
+  setView(state.inSession ? "train" : top);
 }
 
 window.addEventListener("popstate", () => {
+  if (pendingStack) {
+    const stack = pendingStack;
+    pendingStack = null;
+    return pushScreens(stack, currentStack().length);
+  }
+  closeSheet();
+  showScreen(currentStack());
+});
+
+/** Leave the session screen other than by the back button: back to Train. */
+function closeSession() {
   if (!state.inSession) return;
   state.inSession = false;
-  closeSheet();
-  setView(state.sessionFrom);
-});
+  navigate([]);
+}
 
 /** Only one workout at a time; a second would strand the first unfinished. */
 async function ensureNoActiveSession() {
@@ -1442,15 +1470,15 @@ const actions = {
       body: { plan_id: Number(el.dataset.id) },
     });
     closeSheet();
-    openSession(state.view);
+    navigate([...currentStack(), "session"]);
   },
 
   "select-plan"() {
-    setView("plans");
+    navigate(["plans"]);
   },
 
   "continue-session"() {
-    openSession("train");
+    navigate(["session"]);
   },
 
   async "start-freestyle"() {
@@ -1473,7 +1501,7 @@ const actions = {
       body: { plan_id: null, name },
     });
     closeSheet();
-    openSession("train");
+    navigate(["session"]);
   },
 
   async log(el) {
@@ -1799,9 +1827,10 @@ const actions = {
 document.addEventListener("click", async (ev) => {
   const tab = ev.target.closest(".tab");
   if (tab) {
+    const view = tab.dataset.view;
     // Train keeps an open session on screen; any other tab leaves it running.
-    if (tab.dataset.view !== "train") closeSession();
-    return setView(tab.dataset.view);
+    if (view === "train" && state.inSession) return refresh();
+    return navigate(view === "train" ? [] : [view]);
   }
 
   if (ev.target.id === "sheet") return closeSheet();
@@ -2110,8 +2139,14 @@ setInterval(() => {
   }
   // Reopening mid-workout goes straight back into it.
   const active = await api("/sessions/active").catch(() => null);
-  if (active) openSession("train");
-  else setView("train");
+  const stack = currentStack(); // kept across a reload
+  const wanted = active
+    ? stack[stack.length - 1] === "session"
+      ? stack
+      : ["session"]
+    : stack.filter((screen) => screen !== "session");
+  if (wanted.join() === stack.join()) showScreen(stack);
+  else navigate(wanted);
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {
       toast("Offline mode unavailable");

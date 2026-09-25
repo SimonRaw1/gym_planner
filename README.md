@@ -38,7 +38,8 @@ then from the **History** tab:
   starts the rest timer in the header. An unfinished session is kept, so you can
   lock the phone or close the app and pick up where you were. The phone's back
   button leaves the workout without ending it, returning to the tab you started
-  it from; **Continue session** on the Train tab takes you back in. Only one
+  it from; **Continue session** on the Train tab takes you back in. On Plans or
+  History, back returns to the Train start page rather than closing the app. Only one
   session runs at a time. While a session is running the screen stays on (where
   the browser supports it; battery saver can prevent it).
 - **Reorder or remove exercises** — press the &#8942;&#8942; grip on an exercise
