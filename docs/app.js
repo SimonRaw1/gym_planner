@@ -12,6 +12,8 @@ const state = {
   groups: [], // blocks (parent_id null) and the weeks inside them
   openGroups: loadOpenGroups(), // group ids expanded on the Plans tab
   session: null,
+  inSession: false, // the session screen is showing (vs. just running)
+  sessionFrom: "train", // tab the back button returns to from the session
   history: [],
   historyExercise: null, // exercise id the History list is filtered to
   draft: null, // plan being edited in the sheet
@@ -819,12 +821,33 @@ function stopRest() {
 
 // ------------------------------------------------------------ view: train
 
+/** The Train tab shows the session screen while one is open, otherwise the
+ * start page, with a card to get back into a session still running. */
 function renderTrain() {
-  const idle = $("#train-idle");
-  const active = $("#train-active");
-  idle.hidden = !!state.session;
-  active.hidden = !state.session;
-  if (state.session) renderActiveSession();
+  if (!state.session) closeSession();
+  $("#train-idle").hidden = state.inSession;
+  $("#train-active").hidden = !state.inSession;
+  if (state.inSession) renderActiveSession();
+  else renderCurrentSession();
+}
+
+function sessionMeta(s) {
+  const mins = Math.round((Date.now() - parseTs(s.started_at).getTime()) / 60000);
+  const volume = s.sets.reduce((sum, x) => sum + x.reps * x.weight, 0);
+  return `${mins} min · ${s.sets.length} sets · ${fmtWeight(volume)} kg`;
+}
+
+function renderCurrentSession() {
+  const card = $("#current-session");
+  const s = state.session;
+  card.hidden = !s;
+  if (!s) return;
+  card.innerHTML = `
+    <h2>Current session</h2>
+    <p class="muted"><strong>${esc(s.name)}</strong> &middot; ${sessionMeta(s)}</p>
+    <button class="btn good" data-action="continue-session" style="margin-top:14px">
+      Continue session
+    </button>`;
 }
 
 function renderStats(stats) {
@@ -848,11 +871,7 @@ function renderStats(stats) {
 function renderActiveSession() {
   const s = state.session;
   $("#session-name").textContent = s.name;
-  const started = parseTs(s.started_at);
-  const mins = Math.round((Date.now() - started.getTime()) / 60000);
-  const volume = s.sets.reduce((sum, x) => sum + x.reps * x.weight, 0);
-  $("#session-meta").textContent =
-    `${mins} min · ${s.sets.length} sets · ${fmtWeight(volume)} kg`;
+  $("#session-meta").textContent = sessionMeta(s);
 
   $("#exercise-list").innerHTML =
     s.items
@@ -1297,6 +1316,37 @@ function setView(view) {
   refresh();
 }
 
+/* The session screen gets its own history entry, so the phone's back button
+ * leaves the workout (which keeps running) and returns to the tab it was
+ * opened from, instead of closing the app. */
+function openSession(from) {
+  state.sessionFrom = from;
+  state.inSession = true;
+  if (!history.state?.session) history.pushState({ session: true }, "");
+  setView("train");
+}
+
+/** Leave the session screen some other way than the back button. */
+function closeSession() {
+  if (!state.inSession) return;
+  state.inSession = false;
+  // Drop our history entry; the popstate this causes finds nothing to do.
+  if (history.state?.session) history.back();
+}
+
+window.addEventListener("popstate", () => {
+  if (!state.inSession) return;
+  state.inSession = false;
+  closeSheet();
+  setView(state.sessionFrom);
+});
+
+/** Only one workout at a time; a second would strand the first unfinished. */
+async function ensureNoActiveSession() {
+  if (await api("/sessions/active"))
+    throw new Error("Finish or discard the current session first");
+}
+
 async function refresh() {
   try {
     if (state.view === "train") {
@@ -1306,7 +1356,7 @@ async function refresh() {
       ]);
       state.session = session;
       renderTrain();
-      if (!session) renderStats(stats);
+      renderStats(stats);
     } else if (state.view === "plans") {
       [state.plans, state.groups] = await Promise.all([
         api("/plans"),
@@ -1329,19 +1379,25 @@ async function refresh() {
 
 const actions = {
   async "start-plan"(el) {
+    await ensureNoActiveSession();
     state.session = await api("/sessions", {
       method: "POST",
       body: { plan_id: Number(el.dataset.id) },
     });
     closeSheet();
-    setView("train");
+    openSession(state.view);
   },
 
   "select-plan"() {
     setView("plans");
   },
 
+  "continue-session"() {
+    openSession("train");
+  },
+
   async "start-freestyle"() {
+    await ensureNoActiveSession();
     openSheet(
       "Name your session",
       `
@@ -1360,7 +1416,7 @@ const actions = {
       body: { plan_id: null, name },
     });
     closeSheet();
-    renderTrain();
+    openSession("train");
   },
 
   async log(el) {
@@ -1421,6 +1477,7 @@ const actions = {
       body: { notes },
     });
     state.session = null;
+    closeSession();
     stopRest();
     $("#topbar-note").textContent = "";
     closeSheet();
@@ -1432,6 +1489,7 @@ const actions = {
     if (!confirm("Discard this session and everything logged in it?")) return;
     await api(`/sessions/${state.session.id}`, { method: "DELETE" });
     state.session = null;
+    closeSession();
     stopRest();
     $("#topbar-note").textContent = "";
     refresh();
@@ -1668,7 +1726,11 @@ const actions = {
 
 document.addEventListener("click", async (ev) => {
   const tab = ev.target.closest(".tab");
-  if (tab) return setView(tab.dataset.view);
+  if (tab) {
+    // Train keeps an open session on screen; any other tab leaves it running.
+    if (tab.dataset.view !== "train") closeSession();
+    return setView(tab.dataset.view);
+  }
 
   if (ev.target.id === "sheet") return closeSheet();
 
@@ -1953,18 +2015,12 @@ $("#import-plans-file").addEventListener("change", async (ev) => {
   }
 });
 
-// Keep the session header's elapsed time honest without a full re-render.
+// Keep the session's elapsed time honest without a full re-render.
 setInterval(() => {
-  if (state.session && state.view === "train") {
-    const started = parseTs(state.session.started_at);
-    const mins = Math.round((Date.now() - started.getTime()) / 60000);
-    const volume = state.session.sets.reduce(
-      (sum, x) => sum + x.reps * x.weight,
-      0,
-    );
-    $("#session-meta").textContent =
-      `${mins} min · ${state.session.sets.length} sets · ${fmtWeight(volume)} kg`;
-  }
+  if (!state.session || state.view !== "train") return;
+  if (state.inSession)
+    $("#session-meta").textContent = sessionMeta(state.session);
+  else renderCurrentSession();
 }, 30000);
 
 (async function boot() {
@@ -1973,7 +2029,10 @@ setInterval(() => {
   } catch (err) {
     toast("Could not open local data");
   }
-  setView("train");
+  // Reopening mid-workout goes straight back into it.
+  const active = await api("/sessions/active").catch(() => null);
+  if (active) openSession("train");
+  else setView("train");
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {
       toast("Offline mode unavailable");

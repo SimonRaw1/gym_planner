@@ -204,6 +204,12 @@ body {
   letter-spacing: 0.06em;
 }
 
+/* A workout still running, shown on the Train start page. */
+.current-session {
+  border-color: var(--good);
+  margin-bottom: 8px;
+}
+
 .session-head {
   display: flex;
   justify-content: space-between;

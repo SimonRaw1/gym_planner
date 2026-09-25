@@ -35,7 +35,10 @@ then from the **History** tab:
 - **Train** — start from a plan or go freestyle. Each exercise shows its target,
   what you managed last time, and a log box (weight, reps, RPE). Logging a set
   starts the rest timer in the header. An unfinished session is kept, so you can
-  lock the phone or close the app and pick up where you were.
+  lock the phone or close the app and pick up where you were. The phone's back
+  button leaves the workout without ending it, returning to the tab you started
+  it from; **Continue session** on the Train tab takes you back in. Only one
+  session runs at a time.
 - **Reorder or remove exercises** — press the &#8942;&#8942; grip on an exercise
   (in a workout or the plan editor) and drag. Drop it where you want it, or onto
   the trash bin that appears at the bottom to delete it. Removing an exercise
