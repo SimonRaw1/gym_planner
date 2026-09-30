@@ -4,7 +4,8 @@
 
 A phone-first gym tracker built as an offline PWA. There is no server: static
 files in docs/ are hosted on GitHub Pages, and all data lives in the phone
-browser's IndexedDB. One user, one phone.
+browser's IndexedDB. Anyone can install it from the link; each person's data
+stays on their own phone, with no accounts.
 
 ## Quick start
 
@@ -27,6 +28,8 @@ browser's IndexedDB. One user, one phone.
 - Bump CACHE in docs/sw.js whenever a shell file changes.
 - Data is one JSON object in IndexedDB (version, nextIds, exercises, plans, sessions, last_export). Keep changes backward compatible with existing backups, or bump version and migrate in both localData() and backupToData().
 - Backup is manual: Export shares a JSON file (for Google Drive), Import replaces all data.
-- Weight units are kg; labels live in docs/app.js.
+- Weights are stored in kg. The kg/lb setting (localStorage pref `unit`) only
+  changes display and entry: show weights with fmtWeight() and unitLabel(), and
+  convert typed weights with toKg().
 - Keep the UI mobile-first; don't assume a desktop browser.
 - Do not add accounts, a backend, or cloud sync unless the user explicitly asks.

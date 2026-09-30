@@ -6,18 +6,26 @@ connection, and keeps everything on the phone.
 Build plans, start a workout, log sets with your thumb, see what you lifted last
 time.
 
-## Installing on the phone
+## Get the app
 
-The app is a static site served by GitHub Pages from the [docs/](docs/) folder:
+Anyone can use it. Open this link on your phone:
 
 <https://simonraw1.github.io/gym_planner/>
 
-Open that link once on the phone while online, then:
+The Train page shows an **Install the app** card:
 
-- **iPhone (Safari):** Share &rarr; **Add to Home Screen**
-- **Android (Chrome):** &#8942; menu &rarr; **Install app** / **Add to Home screen**
+- **Android (Chrome):** tap **Install**. The app then shows up on the home screen and in the app drawer.
+- **iPhone:** tap **How to install** for the steps: **Share** &rarr; **Add to
+  Home Screen** &rarr; **Add**. Please do install it on iPhone. Safari may clear
+  the storage of a site that isn't on the home screen and hasn't been opened for
+  a week, which would erase your workouts.
 
-After that it opens full-screen and runs without any connection.
+If you closed the card, use the browser menu instead (&#8942; &rarr; **Install
+app** in Chrome, **Share** &rarr; **Add to Home Screen** in Safari). After that
+the app opens full screen and runs without any connection.
+
+There are no accounts and nothing is sent anywhere. Your workouts are stored
+only on your phone, so each person's data is separate.
 
 ## Backing up to Google Drive
 
@@ -57,9 +65,9 @@ then from the **History** tab:
 - **History** — past sessions with set count and total volume; tap one to see
   every set. Pick an exercise in the filter to see every time you did it, newest
   first; tick **Hide warm-up sets** to see working sets only.
-
-Weights are in kg throughout. To switch to lb, change the `kg` labels in
-[docs/app.js](docs/app.js).
+- **Settings** (bottom of History) — **Weight unit** switches between kg and
+  lb. Weights are always stored in kg, so a backup restores correctly whichever
+  unit either phone uses.
 
 ## Layout
 

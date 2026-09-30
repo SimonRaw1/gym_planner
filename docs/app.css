@@ -398,6 +398,20 @@ label {
   font-weight: 650;
 }
 
+/* Install steps for iPhone, with Safari's share icon inline. */
+.steps {
+  margin: 0;
+  padding-left: 1.3em;
+}
+.steps li + li {
+  margin-top: 10px;
+}
+.inline-icon {
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.2em;
+}
+
 .pill {
   display: inline-block;
   padding: 2px 8px;

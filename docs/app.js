@@ -16,6 +16,7 @@ const state = {
   history: [],
   historyExercise: null, // exercise id the History list is filtered to
   hideWarmups: loadPref("hide-warmups", false), // in that filtered list
+  unit: loadPref("unit", "kg"), // how weights are shown and typed; stored in kg
   draft: null, // plan being edited in the sheet
   rest: null, // { until: epochMs, timer: intervalId }
 };
@@ -529,9 +530,24 @@ function num(value) {
   return Math.round(n * 100) / 100;
 }
 
-function fmtWeight(w) {
-  const n = num(w);
+/* Weights are stored in kg whatever the unit setting, so backups don't depend
+ * on it; only what is shown and typed is converted. */
+const LB_PER_KG = 2.20462262;
+
+function unitLabel() {
+  return state.unit === "lb" ? "lb" : "kg";
+}
+
+/** A stored (kg) weight in the display unit. */
+function fmtWeight(kg) {
+  const n = num(state.unit === "lb" ? kg * LB_PER_KG : kg);
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+/** A typed weight, in the display unit, as kg. Left unrounded so that 225 lb
+ * shows back as 225, not 225.01. */
+function toKg(value) {
+  return state.unit === "lb" ? value / LB_PER_KG : value;
 }
 
 function fmtDuration(seconds) {
@@ -858,6 +874,59 @@ async function syncWakeLock() {
 
 document.addEventListener("visibilitychange", syncWakeLock);
 
+// ----------------------------------------------------------------- install
+
+/* Browsers keep "install" in a menu, so the Train page offers it. Chrome lets
+ * the page open its install dialog; iPhone has no such hook, so there the card
+ * explains the steps. It matters most on iPhone: Safari may clear an
+ * uninstalled site's storage, workouts included, after 7 days unopened. */
+let installPrompt = null; // Chrome's beforeinstallprompt event, kept for the button
+
+const isInstalled = () =>
+  matchMedia("(display-mode: standalone)").matches ||
+  navigator.standalone === true;
+
+const isIos = () =>
+  /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); // iPadOS
+
+window.addEventListener("beforeinstallprompt", (ev) => {
+  ev.preventDefault();
+  installPrompt = ev;
+  renderInstallCard();
+});
+
+window.addEventListener("appinstalled", () => {
+  installPrompt = null;
+  renderInstallCard();
+});
+
+function renderInstallCard() {
+  const card = $("#install-card");
+  const show =
+    !isInstalled() &&
+    !loadPref("install-dismissed", false) &&
+    Boolean(installPrompt || isIos());
+  card.hidden = !show;
+  if (!show) return;
+  card.innerHTML = `
+    <h2>Install the app</h2>
+    <p class="muted">Put Gym Planner on your home screen. It opens full screen
+      and works with no connection${isIos() ? ", and Safari won't clear your workouts" : ""}.</p>
+    <div class="row" style="margin-top:14px">
+      <button class="btn ghost" data-action="install-dismiss">Not now</button>
+      ${
+        installPrompt
+          ? '<button class="btn" data-action="install-app">Install</button>'
+          : '<button class="btn" data-action="install-help">How to install</button>'
+      }
+    </div>`;
+}
+
+const SHARE_ICON = `<svg class="inline-icon" viewBox="0 0 24 24" fill="none"
+  stroke="currentColor" stroke-width="2" stroke-linecap="round"
+  stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4M8 11H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-2"/></svg>`;
+
 // ------------------------------------------------------------ view: train
 
 /** Set rows, warm-ups marked "W" and working sets numbered 1, 2, 3...
@@ -869,7 +938,7 @@ function setRowsHtml(sets, end = () => "<span></span>") {
       (x) => `
           <div class="setrow${x.warmup ? " warmup" : ""}">
             <span class="idx"${x.warmup ? ' title="Warm-up set"' : ""}>${x.warmup ? "W" : ++n}</span>
-            <span>${x.reps} &times; ${fmtWeight(x.weight)} kg${x.rpe != null ? ` · RPE ${x.rpe}` : ""}</span>
+            <span>${x.reps} &times; ${fmtWeight(x.weight)} ${unitLabel()}${x.rpe != null ? ` · RPE ${x.rpe}` : ""}</span>
             ${end(x)}
           </div>`,
     )
@@ -884,13 +953,16 @@ function renderTrain() {
   $("#train-idle").hidden = state.inSession;
   $("#train-active").hidden = !state.inSession;
   if (state.inSession) renderActiveSession();
-  else renderCurrentSession();
+  else {
+    renderCurrentSession();
+    renderInstallCard();
+  }
 }
 
 function sessionMeta(s) {
   const mins = Math.round((Date.now() - parseTs(s.started_at).getTime()) / 60000);
   const volume = s.sets.reduce((sum, x) => sum + x.reps * x.weight, 0);
-  return `${mins} min · ${s.sets.length} sets · ${fmtWeight(volume)} kg`;
+  return `${mins} min · ${s.sets.length} sets · ${fmtWeight(volume)} ${unitLabel()}`;
 }
 
 function renderCurrentSession() {
@@ -911,14 +983,14 @@ function renderStats(stats) {
     .map(
       (b) => `
     <div class="spread"><span>${esc(b.name)}</span>
-    <span class="pill">${fmtWeight(b.weight)} kg</span></div>`,
+    <span class="pill">${fmtWeight(b.weight)} ${unitLabel()}</span></div>`,
     )
     .join("");
   $("#stats").innerHTML = `
     <h2>Last 7 days</h2>
     <div class="row wrap" style="margin-top:8px">
       <span class="pill">${stats.sessions_7d} session${stats.sessions_7d === 1 ? "" : "s"}</span>
-      <span class="pill">${fmtWeight(stats.volume_7d)} kg volume</span>
+      <span class="pill">${fmtWeight(stats.volume_7d)} ${unitLabel()} volume</span>
       <span class="pill">${stats.sessions_total} total</span>
     </div>
     ${best ? `<h3 style="margin-top:14px">Heaviest sets</h3><div class="stack tight" style="margin-top:6px">${best}</div>` : ""}`;
@@ -962,7 +1034,7 @@ function renderActiveSession() {
             <div class="target">${target} &middot; rest ${item.rest_seconds}s</div>
             ${
               prev
-                ? `<div class="prev">Last: ${prev.reps} &times; ${fmtWeight(prev.weight)} kg
+                ? `<div class="prev">Last: ${prev.reps} &times; ${fmtWeight(prev.weight)} ${unitLabel()}
               (${esc(dayLabel(prev.started_at))})</div>`
                 : ""
             }
@@ -980,7 +1052,7 @@ function renderActiveSession() {
         }
         <div class="logform" data-ex="${item.exercise_id}" data-rest="${item.rest_seconds}">
           <input type="number" inputmode="decimal" step="0.5" min="0"
-            data-f="weight" placeholder="kg" value="${fillWeight}">
+            data-f="weight" placeholder="${unitLabel()}" value="${fillWeight}">
           <input type="number" inputmode="numeric" step="1" min="0"
             data-f="reps" placeholder="reps" value="${fillReps}">
           <input type="number" inputmode="decimal" step="0.5" min="1" max="10"
@@ -1289,7 +1361,7 @@ function renderExerciseHistory(exerciseId) {
               <h2>${esc(dayLabel(s.started_at))}</h2>
               <span class="muted">${esc(s.name)} &middot; ${s.sets.length} set${s.sets.length === 1 ? "" : "s"}</span>
             </div>
-            <span class="pill">top ${fmtWeight(top)} kg</span>
+            <span class="pill">top ${fmtWeight(top)} ${unitLabel()}</span>
           </div>
           <div class="stack tight" style="margin-top:8px">
             ${setRowsHtml(s.sets)}
@@ -1299,7 +1371,16 @@ function renderExerciseHistory(exerciseId) {
     .join("");
 }
 
+function renderUnitButtons() {
+  $$('[data-action="set-unit"]').forEach((btn) => {
+    const on = btn.dataset.unit === unitLabel();
+    btn.classList.toggle("ghost", !on);
+    btn.setAttribute("aria-pressed", String(on));
+  });
+}
+
 function renderHistory() {
+  renderUnitButtons();
   renderHistoryFilter();
   if (state.historyExercise !== null)
     return renderExerciseHistory(state.historyExercise);
@@ -1315,7 +1396,7 @@ function renderHistory() {
               <span class="muted">${esc(dayLabel(s.started_at))} &middot;
                 ${s.exercise_count} exercises &middot; ${s.set_count} sets</span>
             </div>
-            <span class="pill">${fmtWeight(s.volume)} kg</span>
+            <span class="pill">${fmtWeight(s.volume)} ${unitLabel()}</span>
           </div>
           ${s.finished_at ? "" : '<p class="muted">in progress</p>'}
         </button>`,
@@ -1481,6 +1562,42 @@ const actions = {
     navigate(["session"]);
   },
 
+  async "install-app"() {
+    const prompt = installPrompt;
+    installPrompt = null; // Chrome's event only opens the dialog once
+    if (prompt) await prompt.prompt();
+    renderInstallCard();
+  },
+
+  "install-help"() {
+    openSheet(
+      "Install on iPhone",
+      `
+        <ol class="steps">
+          <li>Tap <strong>Share</strong> ${SHARE_ICON}. In Safari it may be
+            under <strong>&bull;&bull;&bull;</strong>.</li>
+          <li>Tap <strong>Add to Home Screen</strong>. You may need to scroll
+            down or tap <strong>View More</strong>.</li>
+          <li>Tap <strong>Add</strong>, then open <strong>Gym</strong> from
+            your home screen.</li>
+        </ol>
+        <p class="muted" style="margin-top:14px">Your workouts are kept on this
+          phone only. Once the app is on the home screen, Safari won't clear
+          them. Use Export data on the History tab now and then as a backup.</p>`,
+    );
+  },
+
+  "install-dismiss"() {
+    savePref("install-dismissed", true);
+    renderInstallCard();
+  },
+
+  "set-unit"(el) {
+    state.unit = el.dataset.unit === "lb" ? "lb" : "kg";
+    savePref("unit", state.unit);
+    refresh();
+  },
+
   async "start-freestyle"() {
     await ensureNoActiveSession();
     openSheet(
@@ -1506,7 +1623,7 @@ const actions = {
 
   async log(el) {
     const form = el.closest(".logform");
-    const weight = num(form.querySelector('[data-f="weight"]').value);
+    const weight = toKg(num(form.querySelector('[data-f="weight"]').value));
     const reps = parseInt(form.querySelector('[data-f="reps"]').value, 10);
     const rpeInput = form.querySelector('[data-f="rpe"]').value;
     const rpe = rpeInput === "" ? null : num(rpeInput);
