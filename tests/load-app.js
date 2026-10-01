@@ -1,0 +1,107 @@
+/* Loads docs/app.js into a Node vm with just enough of a browser around it:
+ * a do-nothing DOM, localStorage, and an in-memory IndexedDB that stores
+ * structured clones, like the real one. Dependency-free on purpose. */
+
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+
+const APP = path.join(__dirname, "..", "docs", "app.js");
+
+/** Anything the app reaches for on the DOM: callable, any property, never throws. */
+function inert() {
+  const fn = function () {
+    return proxy;
+  };
+  const proxy = new Proxy(fn, {
+    get: (target, key) => {
+      if (key === Symbol.toPrimitive) return () => "";
+      if (key === "then") return undefined; // not a promise
+      return proxy;
+    },
+    set: () => true,
+    apply: () => proxy,
+  });
+  return proxy;
+}
+
+function fakeIndexedDB(stored) {
+  const later = (fn) => setTimeout(fn, 0);
+  const request = (run) => {
+    const req = {};
+    later(() => {
+      req.result = run();
+      req.onsuccess?.();
+    });
+    return req;
+  };
+  const db = {
+    createObjectStore() {},
+    transaction: () => ({
+      objectStore: () => ({
+        get: (key) => request(() => structuredClone(stored.get(key))),
+        put: (value, key) =>
+          request(() => void stored.set(key, structuredClone(value))),
+      }),
+    }),
+  };
+  return {
+    open() {
+      const req = {};
+      later(() => {
+        req.result = db;
+        req.onupgradeneeded?.();
+        req.onsuccess?.();
+      });
+      return req;
+    },
+  };
+}
+
+/** A fresh copy of the app. `stored` is the IndexedDB contents (a Map). */
+function loadApp(stored = new Map()) {
+  const dom = inert();
+  const prefs = new Map();
+  const shared = []; // files handed to the share sheet
+  const context = {
+    console,
+    setTimeout,
+    clearTimeout,
+    setInterval: () => 0,
+    clearInterval() {},
+    structuredClone,
+    File,
+    Blob,
+    document: dom,
+    window: dom,
+    navigator: {
+      userAgent: "node",
+      standalone: false,
+      canShare: () => true,
+      share: async ({ files }) => void shared.push(...files),
+    },
+    location: { hostname: "example.test" }, // not localhost: boot stops at the install gate
+    matchMedia: () => ({ matches: false }),
+    confirm: () => true,
+    indexedDB: fakeIndexedDB(stored),
+    localStorage: {
+      getItem: (k) => (prefs.has(k) ? prefs.get(k) : null),
+      setItem: (k, v) => prefs.set(k, String(v)),
+    },
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(APP, "utf8"), context, { filename: APP });
+  return {
+    stored,
+    context,
+    shared,
+    /** Run an expression inside the app's scope (sees its let/const too). */
+    run: (code) => vm.runInContext(code, context),
+    /** Forget the in-memory copy, as a reload would. */
+    reload() {
+      vm.runInContext("dataCache = null", context);
+    },
+  };
+}
+
+module.exports = { loadApp };

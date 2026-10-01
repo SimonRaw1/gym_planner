@@ -12,6 +12,7 @@
   --accent-dim: #8f4f87;
   --good: #3ddc84;
   --danger: #ff5f5f;
+  --warn: #ffb547;
   --radius: 14px;
   --tabbar-h: 58px;
 }
@@ -63,6 +64,10 @@ p {
 .muted {
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+.muted.warn {
+  color: var(--warn);
 }
 
 /* ---------------------------------------------------------------- layout */
