@@ -241,3 +241,20 @@ test("files that are not backups are refused", () => {
   refuse({ ...currentBackup(), sessions: undefined });
   refuse({ kind: "gym-planner-plans", version: 1, plans: [] });
 });
+
+test("Settings says how long ago the last backup was", () => {
+  const app = loadApp();
+  app.context.now = new Date(2026, 9, 20, 12, 0); // local time, like the phone
+  const line = (lastExport) => {
+    app.context.lastExport = lastExport;
+    return plain(app.run("lastBackupLine(lastExport, now)"));
+  };
+  const utc = (y, m, d, h) =>
+    new Date(y, m, d, h).toISOString().slice(0, 19).replace("T", " ");
+
+  assert.deepEqual(line(null), { text: "Never backed up", stale: true });
+  assert.deepEqual(line(utc(2026, 9, 20, 7)), { text: "Last backup today", stale: false });
+  assert.deepEqual(line(utc(2026, 9, 19, 23)), { text: "Last backup yesterday", stale: false });
+  assert.deepEqual(line(utc(2026, 9, 6, 9)), { text: "Last backup 14 days ago", stale: false });
+  assert.deepEqual(line(utc(2026, 9, 5, 9)), { text: "Last backup 15 days ago", stale: true });
+});

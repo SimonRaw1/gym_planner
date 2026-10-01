@@ -524,6 +524,28 @@ function dayLabel(ts) {
   });
 }
 
+/** Backups older than this are flagged in Settings. */
+const BACKUP_STALE_DAYS = 14;
+
+/** "Last backup" line for Settings, from the stored last_export. */
+function lastBackupLine(lastExport, now = new Date()) {
+  const d = parseTs(lastExport);
+  if (!d) return { text: "Never backed up", stale: true };
+  const midnight = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const days = Math.max(0, Math.round((midnight(now) - midnight(d)) / 86400000));
+  const ago =
+    days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+  return { text: `Last backup ${ago}`, stale: days > BACKUP_STALE_DAYS };
+}
+
+function renderLastBackup() {
+  const el = $("#last-backup");
+  if (!el) return;
+  const { text, stale } = lastBackupLine(dataCache?.last_export);
+  el.textContent = text;
+  el.classList.toggle("warn", stale);
+}
+
 function num(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
@@ -1607,12 +1629,14 @@ const actions = {
         <h3 style="margin-top:20px">Data backup</h3>
         <p class="muted">Your workouts are kept on this phone only. Export now
           and then to keep a copy; Import replaces everything here.</p>
+        <p id="last-backup" class="muted" style="margin-top:8px"></p>
         <div class="row" style="margin-top:10px">
           <button class="btn small ghost" data-action="export-data">Export data</button>
           <button class="btn small ghost" data-action="import-data">Import data</button>
         </div>`,
     );
     renderUnitButtons();
+    renderLastBackup();
   },
 
   "set-unit"(el) {
@@ -1937,6 +1961,7 @@ const actions = {
     const json = JSON.stringify({ ...data, exported_at: stamp }, null, 2);
     if (!(await shareJson(name, json))) return;
     await writeLocalData({ ...data, last_export: nowTs() });
+    renderLastBackup();
     toast("Backup exported");
   },
 
