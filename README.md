@@ -65,11 +65,16 @@ Settings also shows when you last exported, and flags it once that is more than
   Group plans with **+ New block** (e.g. Block 1), then **+ Week** inside it;
   put a plan in a week with **+ Plan** there or the Week picker in the plan
   editor. Deleting a block or week keeps its plans under Other plans.
-  **Export plans** shares just your plans as a file. **Import plans** reads such
+  Optionally, gather blocks and plans into a folder (e.g. Nationals Prep) with
+  **+ New folder**, then **+ Block** or **+ Plan** inside it; move a block in or
+  out with Rename, and a plan with the Folder or week picker. Deleting a folder
+  keeps everything that was in it.
+  **Export plans** shares your plans as a file; with folders it asks whether to
+  export all plans or one folder. **Import plans** reads such
   a file and asks how: **Add new plans** keeps everything you have and adds only
-  the plans you don't have yet, into their blocks and weeks (so importing an
+  the plans you don't have yet, into their folders, blocks and weeks (so importing an
   updated export never duplicates); **Overwrite all plans** deletes your plans,
-  blocks and weeks and uses the file's list instead. Plans, blocks and weeks
+  folders, blocks and weeks and uses the file's list instead. Plans, folders, blocks and weeks
   carry a uid so they match across phones even after a rename; older files
   without uids match by week and plan name. Missing exercises are created, and
   logged workouts are never touched.
