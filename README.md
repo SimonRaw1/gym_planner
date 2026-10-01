@@ -65,9 +65,14 @@ Settings also shows when you last exported, and flags it once that is more than
   Group plans with **+ New block** (e.g. Block 1), then **+ Week** inside it;
   put a plan in a week with **+ Plan** there or the Week picker in the plan
   editor. Deleting a block or week keeps its plans under Other plans.
-  **Export plans** shares just your plans as a file; **Import plans** adds the
-  plans from such a file to your list (nothing is replaced; missing exercises
-  are created).
+  **Export plans** shares just your plans as a file. **Import plans** reads such
+  a file and asks how: **Add new plans** keeps everything you have and adds only
+  the plans you don't have yet, into their blocks and weeks (so importing an
+  updated export never duplicates); **Overwrite all plans** deletes your plans,
+  blocks and weeks and uses the file's list instead. Plans, blocks and weeks
+  carry a uid so they match across phones even after a rename; older files
+  without uids match by week and plan name. Missing exercises are created, and
+  logged workouts are never touched.
 - **History** — past sessions with set count and total volume; tap one to see
   every set. Pick an exercise in the filter to see every time you did it, newest
   first; tick **Hide warm-up sets** to see working sets only.

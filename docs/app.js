@@ -18,6 +18,7 @@ const state = {
   hideWarmups: loadPref("hide-warmups", false), // in that filtered list
   unit: loadPref("unit", "kg"), // how weights are shown and typed; stored in kg
   draft: null, // plan being edited in the sheet
+  pendingPlans: null, // parsed plans file waiting for Add new / Overwrite
   rest: null, // { until: epochMs, timer: intervalId }
 };
 
@@ -306,6 +307,7 @@ async function api(path, options = {}) {
   else if (path === "/plans" && method === "POST") {
     const plan = {
       id: data.nextIds.plan++,
+      uid: newUid(),
       name: body.name.trim(),
       notes: body.notes || "",
       group_id: weekId(data, body.group_id),
@@ -351,6 +353,7 @@ async function api(path, options = {}) {
       throw new Error("Weeks can only go inside a block");
     const group = {
       id: data.nextIds.group++,
+      uid: newUid(),
       name: body.name.trim(),
       parent_id: parent ? parent.id : null,
     };
@@ -612,6 +615,7 @@ function closeSheet() {
   $("#sheet-foot").innerHTML = "";
   document.body.style.overflow = "";
   state.draft = null;
+  state.pendingPlans = null;
 }
 
 /* A phone keyboard covers the bottom of the screen without shrinking the
@@ -1973,20 +1977,58 @@ const actions = {
     // No awaits before share(): browsers only allow it straight after a tap.
     const data = dataCache;
     if (!data?.plans.length) return toast("No plans to export");
+    ensureUids(data); // so the next import can tell these plans apart
     const stamp = new Date().toISOString();
     const name = `gym-planner-plans-${stamp.slice(0, 10)}`;
     const json = JSON.stringify(plansToExport(data, stamp), null, 2);
-    if (await shareJson(name, json)) toast("Plans exported");
+    if (!(await shareJson(name, json))) return;
+    await writeLocalData(data);
+    toast("Plans exported");
   },
 
   "import-plans"() {
     $("#import-plans-file").click();
   },
 
+  async "import-plans-add"() {
+    await finishPlansImport("add");
+  },
+
+  async "import-plans-replace"() {
+    const count = state.plans.length;
+    if (
+      count &&
+      !confirm(
+        `Delete all ${plural(count, "plan")} and blocks on this phone and use the file's list instead? Logged workouts are kept.`,
+      )
+    )
+      return;
+    await finishPlansImport("replace");
+  },
+
   "close-sheet"() {
     closeSheet();
   },
 };
+
+/** Apply the plans file waiting in state.pendingPlans. */
+async function finishPlansImport(mode) {
+  const parsed = state.pendingPlans;
+  if (!parsed) return closeSheet();
+  const data = await localData();
+  const { added, skipped } = importPlans(data, parsed, mode);
+  await writeLocalData(data);
+  closeSheet();
+  toast(
+    mode === "replace"
+      ? `Plans replaced with ${plural(added, "plan")}`
+      : added
+        ? `Added ${plural(added, "new plan")}` +
+          (skipped ? `, ${skipped} already here` : "")
+        : "No new plans; you have them all",
+  );
+  refresh();
+}
 
 // -------------------------------------------------------------------- wiring
 
@@ -2041,57 +2083,102 @@ async function shareJson(name, json) {
   return true;
 }
 
+/** A random id that stays with a plan, block or week across phones, so an
+ * import can tell what it already has. */
+function newUid() {
+  if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 3) | 8).toString(16);
+  });
+}
+
+/** Plans and groups made before uids get one the first time they're needed. */
+function ensureUids(data) {
+  ensureGroups(data);
+  [...data.plans, ...data.groups].forEach((item) => {
+    if (!item.uid) item.uid = newUid();
+  });
+}
+
 /** Plans with exercises referenced by name, since ids differ between phones.
- * A plan in a week carries its place as `group: [block name, week name]`. */
+ * A plan in a week carries its place as `group: [block name, week name]`, and
+ * `group_uids` the same pair by uid. */
 function plansToExport(data, stamp) {
   const groups = Array.isArray(data.groups) ? data.groups : [];
   const groupPath = (id) => {
     const week = groups.find((g) => g.id === id && g.parent_id != null);
     const block = week && groups.find((g) => g.id === week.parent_id);
-    return block ? [block.name, week.name] : null;
+    return block ? [block, week] : null;
   };
   return {
     kind: "gym-planner-plans",
     version: 1,
     exported_at: stamp,
-    plans: data.plans.map((plan) => ({
-      name: plan.name,
-      notes: plan.notes || "",
-      group: groupPath(plan.group_id),
-      items: plan.items.map((item) => {
-        const exercise = data.exercises.find((e) => e.id === item.exercise_id);
-        return {
-          exercise: {
-            name: exercise?.name || "Unknown exercise",
-            muscle_group: exercise?.muscle_group || "other",
-            equipment: exercise?.equipment || "",
-          },
-          target_sets: item.target_sets,
-          target_reps: item.target_reps,
-          target_rpe: item.target_rpe ?? null,
-          rest_seconds: item.rest_seconds,
-        };
-      }),
-    })),
+    plans: data.plans.map((plan) => {
+      const path = groupPath(plan.group_id);
+      return {
+        uid: plan.uid || null,
+        name: plan.name,
+        notes: plan.notes || "",
+        group: path && path.map((g) => g.name),
+        group_uids: path && path.map((g) => g.uid || null),
+        items: plan.items.map((item) => {
+          const exercise = data.exercises.find((e) => e.id === item.exercise_id);
+          return {
+            exercise: {
+              name: exercise?.name || "Unknown exercise",
+              muscle_group: exercise?.muscle_group || "other",
+              equipment: exercise?.equipment || "",
+            },
+            target_sets: item.target_sets,
+            target_reps: item.target_reps,
+            target_rpe: item.target_rpe ?? null,
+            rest_seconds: item.rest_seconds,
+          };
+        }),
+      };
+    }),
   };
 }
 
-/** Add the plans from a plans export (or a full backup) to the local data.
- * Exercises are matched by name and created when missing; existing plans are
- * never replaced, and a clashing name gets a number. Returns how many were added. */
-function addImportedPlans(data, imported) {
-  let plans;
-  if (imported?.kind === "gym-planner-plans" && Array.isArray(imported.plans)) {
-    plans = imported.plans;
-  } else if (
+/** The plans in a plans export (or a full backup), in the export shape. */
+function importedPlansList(imported) {
+  if (imported?.kind === "gym-planner-plans" && Array.isArray(imported.plans))
+    return imported.plans;
+  if (
     imported?.version === 1 &&
     Array.isArray(imported.plans) &&
     Array.isArray(imported.exercises)
-  ) {
-    plans = plansToExport(imported, "").plans;
-  } else {
-    throw new Error("That file has no Gym Planner plans");
+  )
+    return plansToExport(imported, "").plans;
+  throw new Error("That file has no Gym Planner plans");
+}
+
+/** Import the plans from a plans export (or a full backup) into the local data.
+ *
+ * mode "add" keeps every plan on the phone and adds only the plans it doesn't
+ * have yet: a plan is already here when its uid matches, or (for files from
+ * before uids) when its week already has a plan of that name. Blocks and weeks
+ * are matched the same way, by uid, then by name.
+ * mode "replace" deletes every plan, block and week first and takes the file's
+ * list as it is. Logged workouts are kept either way.
+ *
+ * Exercises are matched by name and created when missing.
+ * Returns { added, skipped }. */
+function importPlans(data, imported, mode = "add") {
+  const plans = importedPlansList(imported);
+  ensureUids(data);
+  if (mode === "replace") {
+    data.plans = [];
+    data.groups = [];
   }
+  const existingPlans = [...data.plans];
+  const uidsInUse = () =>
+    new Set([...data.plans, ...data.groups].map((item) => item.uid));
+  /** The imported uid when it's usable and free here, else a new one. */
+  const takeUid = (uid) =>
+    typeof uid === "string" && uid && !uidsInUse().has(uid) ? uid : newUid();
 
   const exerciseId = (exercise) => {
     const name = String(exercise?.name || "").trim();
@@ -2110,21 +2197,30 @@ function addImportedPlans(data, imported) {
     data.exercises.push(created);
     return created.id;
   };
-  ensureGroups(data);
   /** Find or create the block and week a plan was exported from. */
-  const importedWeekId = (path) => {
+  const importedWeekId = (path, uids) => {
     if (!Array.isArray(path) || path.length !== 2) return null;
     let parentId = null;
-    for (const raw of path) {
-      const name = String(raw || "").trim();
+    for (let i = 0; i < 2; i++) {
+      const name = String(path[i] || "").trim();
       if (!name) return null;
-      let group = data.groups.find(
-        (g) =>
-          g.parent_id === parentId &&
-          g.name.toLowerCase() === name.toLowerCase(),
+      const uid = Array.isArray(uids) ? uids[i] : null;
+      const atLevel = data.groups.filter((g) =>
+        i === 0 ? g.parent_id == null : g.parent_id === parentId,
       );
-      if (!group) {
-        group = { id: data.nextIds.group++, name, parent_id: parentId };
+      let group =
+        (uid && atLevel.find((g) => g.uid === uid)) ||
+        atLevel.find((g) => g.name.toLowerCase() === name.toLowerCase());
+      if (group) {
+        // Matched by name: take the file's uid so a later rename still matches.
+        if (uid && group.uid !== uid && !uidsInUse().has(uid)) group.uid = uid;
+      } else {
+        group = {
+          id: data.nextIds.group++,
+          uid: takeUid(uid),
+          name,
+          parent_id: parentId,
+        };
         data.groups.push(group);
       }
       parentId = group.id;
@@ -2144,7 +2240,21 @@ function addImportedPlans(data, imported) {
     return `${name} (${n})`;
   };
 
+  let added = 0;
   plans.forEach((plan) => {
+    const name = String(plan.name || "").trim() || "Imported plan";
+    const uid = typeof plan.uid === "string" && plan.uid ? plan.uid : null;
+    if (uid && existingPlans.some((p) => p.uid === uid)) return;
+    const groupId = importedWeekId(plan.group, plan.group_uids);
+    const sameName = existingPlans.find(
+      (p) =>
+        (p.group_id ?? null) === groupId &&
+        p.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (sameName) {
+      if (uid && !uidsInUse().has(uid)) sameName.uid = uid;
+      return;
+    }
     const items = [];
     (plan.items || []).forEach((item) => {
       const id = exerciseId(item.exercise);
@@ -2157,17 +2267,18 @@ function addImportedPlans(data, imported) {
         rest_seconds: Number(item.rest_seconds) || 0,
       });
     });
-    const groupId = importedWeekId(plan.group);
     data.plans.push({
       id: data.nextIds.plan++,
-      name: freeName(String(plan.name || "").trim() || "Imported plan", groupId),
+      uid: takeUid(uid),
+      name: freeName(name, groupId),
       notes: plan.notes || "",
       group_id: groupId,
       created_at: nowTs(),
       items,
     });
+    added++;
   });
-  return plans.length;
+  return { added, skipped: plans.length - added };
 }
 
 /** Check a parsed backup and rebuild it as a clean data object. */
@@ -2280,11 +2391,25 @@ $("#import-plans-file").addEventListener("change", async (ev) => {
     } catch {
       throw new Error("That file has no Gym Planner plans");
     }
-    const data = await localData();
-    const added = addImportedPlans(data, parsed);
-    await writeLocalData(data);
-    toast(`Added ${added} plan${added === 1 ? "" : "s"}`);
-    refresh();
+    // A dry run on a copy, to say how many are new before anything changes.
+    const { added, skipped } = importPlans(
+      structuredClone(await localData()),
+      parsed,
+    );
+    openSheet(
+      "Import plans",
+      `<p>This file has ${plural(added + skipped, "plan")}.
+        ${added ? `${added} ${added === 1 ? "is" : "are"} new.` : "You already have all of them."}</p>
+      <p class="muted"><strong>Add new plans</strong> keeps your plans and adds
+        only the ones you don't have, into their blocks and weeks.
+        <strong>Overwrite all plans</strong> deletes your plans, blocks and
+        weeks and uses the file's list instead. Logged workouts are kept.</p>`,
+      `<div class="stack tight">
+        <button class="btn good" data-action="import-plans-add">Add new plans</button>
+        <button class="btn danger" data-action="import-plans-replace">Overwrite all plans</button>
+      </div>`,
+    );
+    state.pendingPlans = parsed;
   } catch (err) {
     toast(err.message || "Could not import plans");
   }
