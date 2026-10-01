@@ -251,6 +251,27 @@ const byName = (a, b) =>
     sensitivity: "base",
   });
 
+/** The order set by dragging, then natural order for anything never dragged
+ * (older data, and new items, which go last). */
+const byOrder = (a, b) =>
+  (a.position ?? Infinity) - (b.position ?? Infinity) || byName(a, b);
+
+/** A dragged order for one list of siblings: each id's index becomes its
+ * position. Ids that don't exist are skipped. */
+function setOrder(items, ids) {
+  ids.forEach((id, i) => {
+    const item = items.find((it) => it.id === Number(id));
+    if (item) item.position = i;
+  });
+}
+
+/** Moved somewhere else: its old position means nothing there, so it goes
+ * last until it's dragged into place. */
+const spotOf = (it) => `${it.group_id ?? ""}/${it.folder_id ?? ""}`;
+function leftItsList(item, before) {
+  if (spotOf(item) !== before) delete item.position;
+}
+
 /** Plans live in a week (a group with a parent block) or in no group. */
 function weekId(data, id) {
   const week = data.groups.find((g) => g.id === Number(id));
@@ -332,7 +353,7 @@ async function api(path, options = {}) {
   } else if (path === "/plans" && method === "GET")
     result = data.plans
       .map((plan) => planSummary(data, plan))
-      .sort(byName);
+      .sort(byOrder);
   else if (path === "/plans" && method === "POST") {
     const plan = {
       id: data.nextIds.plan++,
@@ -365,6 +386,7 @@ async function api(path, options = {}) {
       (item) => item.id === Number(match(/^\/plans\/(\d+)$/)[1]),
     );
     if (!plan) throw new Error("Plan not found");
+    const before = spotOf(plan);
     Object.assign(plan, {
       name: body.name.trim(),
       notes: body.notes || "",
@@ -373,6 +395,7 @@ async function api(path, options = {}) {
     });
     plan.folder_id =
       plan.group_id == null ? folderId(data, body.folder_id) : null;
+    leftItsList(plan, before);
     result = plan;
   } else if (match(/^\/plans\/(\d+)\/place$/) && method === "PUT") {
     // Move a plan into a week, a folder (outside weeks), or neither.
@@ -380,16 +403,24 @@ async function api(path, options = {}) {
       (item) => item.id === Number(match(/^\/plans\/(\d+)\/place$/)[1]),
     );
     if (!plan) throw new Error("Plan not found");
+    const before = spotOf(plan);
     plan.group_id = weekId(data, body.group_id);
     plan.folder_id =
       plan.group_id == null ? folderId(data, body.folder_id) : null;
+    leftItsList(plan, before);
     result = plan;
+  } else if (path === "/plans/order" && method === "PUT") {
+    setOrder(data.plans, body.ids || []);
+    result = null;
+  } else if (path === "/groups/order" && method === "PUT") {
+    setOrder(data.groups, body.ids || []);
+    result = null;
   } else if (match(/^\/plans\/(\d+)$/) && method === "DELETE") {
     const id = Number(match(/^\/plans\/(\d+)$/)[1]);
     data.plans = data.plans.filter((plan) => plan.id !== id);
     result = null;
   } else if (path === "/groups" && method === "GET")
-    result = [...data.groups].sort(byName);
+    result = [...data.groups].sort(byOrder);
   else if (path === "/groups" && method === "POST") {
     const parent =
       body.parent_id == null ? null : findGroup(data, body.parent_id);
@@ -408,8 +439,11 @@ async function api(path, options = {}) {
   } else if (match(/^\/groups\/(\d+)$/) && method === "PUT") {
     const group = findGroup(data, match(/^\/groups\/(\d+)$/)[1]);
     group.name = body.name.trim();
-    if (group.parent_id == null && "folder_id" in body)
+    if (group.parent_id == null && "folder_id" in body) {
+      const before = group.folder_id ?? null;
       group.folder_id = folderId(data, body.folder_id);
+      if (group.folder_id !== before) delete group.position;
+    }
     result = group;
   } else if (match(/^\/groups\/(\d+)$/) && method === "DELETE") {
     // A block takes its weeks with it; their plans move to "Other plans".
@@ -912,12 +946,15 @@ const GRIP = `<button type="button" class="drag-handle" data-drag-handle aria-la
   <circle cx="9" cy="10" r="1.6"/><circle cx="3" cy="16" r="1.6"/><circle cx="9" cy="16" r="1.6"/></g></svg>
 </button>`;
 
-// ---------------------------------------------- hold and drag into a folder
+// ------------------------------------- hold and drag to reorder or file away
 
 /* On the Plans tab, touch and hold a plan card or a block's title, then drag
- * it onto a folder (or, for a plan, a week) and let go. A bar at the bottom
- * takes it out of any folder. Moving the finger before the hold completes is
- * a normal scroll. */
+ * it and let go:
+ * - over another plan (or block), it goes just above or below that one, in
+ *   that one's list, so this both reorders and moves between lists;
+ * - onto a folder (or, for a plan, a week) elsewhere, it goes in there, last;
+ * - onto the bar at the bottom, it comes out of any folder.
+ * Moving the finger before the hold completes is a normal scroll. */
 
 const HOLD_MS = 450;
 let hold = null; // a press that may become a move
@@ -963,6 +1000,8 @@ function startMove() {
     kind,
     id: Number(id),
     source,
+    // What sits in the list: a block's whole <details>, not just its title.
+    item: source.closest("[data-order]"),
     ghost,
     pointerId,
     from: dropTarget(kind, source.parentElement),
@@ -990,14 +1029,30 @@ function positionMove() {
   const { ghost, x, y } = move;
   ghost.style.transform = `translate(${x - move.dx - parseFloat(ghost.style.left)}px, ${y - move.dy - parseFloat(ghost.style.top)}px)`;
   const under = document.elementFromPoint(x, y);
-  const target = dropTarget(move.kind, under);
-  if (target === move.target) return;
-  move.target?.classList.remove("drop-here");
+  // Over one of its own kind: above or below that one.
+  const sibling = under?.closest(`[data-order^="${move.kind}:"]`);
+  let target = null;
+  if (sibling && sibling !== move.item) {
+    const r = (sibling.querySelector(":scope > summary") || sibling).getBoundingClientRect();
+    target = { el: sibling, after: y > r.top + r.height / 2 };
+  } else if (!sibling) {
+    const el = dropTarget(move.kind, under);
+    if (el && el !== move.from) target = { el };
+  }
+  const same = (a, b) => a?.el === b?.el && a?.after === b?.after;
+  if (same(target, move.target)) return;
+  clearMoveTarget();
   move.target = target;
-  if (target && target !== move.from) {
-    target.classList.add("drop-here");
+  if (target) {
+    target.el.classList.add(
+      target.after === undefined ? "drop-here" : target.after ? "drop-after" : "drop-before",
+    );
     buzz(8);
   }
+}
+
+function clearMoveTarget() {
+  move.target?.el.classList.remove("drop-here", "drop-before", "drop-after");
 }
 
 /** Scroll the page while the finger sits near the top or just above the bar. */
@@ -1042,19 +1097,60 @@ document.addEventListener(
 function endMove(ev) {
   if (hold && ev.pointerId === hold.pointerId) cancelHold();
   if (!move || ev.pointerId !== move.pointerId) return;
-  const { kind, id, source, ghost, target, from } = move;
+  const { kind, id, source, item, ghost, target } = move;
   cancelAnimationFrame(move.frame);
+  clearMoveTarget();
   ghost.remove();
   source.classList.remove("moving");
-  target?.classList.remove("drop-here");
   $("#unfile").hidden = true;
   document.body.classList.remove("dragging");
   move = null;
   // The release would otherwise click whatever is under it, like a summary.
   swallowClicksUntil = Date.now() + 500;
-  if (ev.type === "pointercancel" || !target || target === from) return;
-  const [where, whereId] = target.dataset.drop.split(":");
-  moveTo(kind, id, where, Number(whereId)).catch((err) => toast(err.message));
+  if (ev.type === "pointercancel" || !target) return;
+  const run =
+    target.after === undefined
+      ? moveTo(kind, id, ...target.el.dataset.drop.split(":"))
+      : reorderTo(kind, id, item, target.el, target.after);
+  run.catch((err) => toast(err.message));
+}
+
+/** Put the item just above or below `next` (one of its kind), in its list. */
+async function reorderTo(kind, id, item, next, after) {
+  const idOf = (el) => Number(el.dataset.order.split(":")[1]);
+  const inList = (el) =>
+    Array.from(el.parentElement.children).filter((n) =>
+      n.dataset.order?.startsWith(`${kind}:`),
+    );
+  const ids = inList(next)
+    .filter((n) => n !== item)
+    .map(idOf);
+  ids.splice(ids.indexOf(idOf(next)) + (after ? 1 : 0), 0, id);
+  const sameList = item.parentElement === next.parentElement;
+  if (sameList && inList(item).map(idOf).join() === ids.join()) return;
+
+  if (kind === "block") {
+    const block = state.groups.find((g) => g.id === id);
+    const other = state.groups.find((g) => g.id === idOf(next));
+    if (!block || !other) return;
+    if (!sameList)
+      await api(`/groups/${id}`, {
+        method: "PUT",
+        body: { name: block.name, folder_id: other.folder_id ?? null },
+      });
+    await api("/groups/order", { method: "PUT", body: { ids } });
+  } else {
+    const other = state.plans.find((p) => p.id === idOf(next));
+    if (!other) return;
+    if (!sameList)
+      await api(`/plans/${id}/place`, {
+        method: "PUT",
+        body: { group_id: other.group_id ?? null, folder_id: other.folder_id ?? null },
+      });
+    await api("/plans/order", { method: "PUT", body: { ids } });
+  }
+  buzz(15);
+  refresh();
 }
 
 let swallowClicksUntil = 0;
@@ -1078,6 +1174,7 @@ document.addEventListener("contextmenu", (ev) => {
 /** Put a plan or block in a folder ("folder"), a plan in a week ("week"), or
  * either in no folder ("none"). */
 async function moveTo(kind, id, where, whereId) {
+  whereId = Number(whereId);
   const folder = where === "folder" ? whereId : null;
   if (kind === "block") {
     const block = state.groups.find((g) => g.id === id);
@@ -1387,7 +1484,7 @@ function renderPlans() {
     tools,
     { key = group.id, kind = "group", drop = "", move = "" } = {},
   ) => `
-    <details class="group${kind === "folder" ? " folder" : ""}" data-${kind}="${group.id}"${drop ? ` data-drop="${drop}"` : ""}${state.openGroups.has(key) ? " open" : ""}>
+    <details class="group${kind === "folder" ? " folder" : ""}" data-${kind}="${group.id}"${drop ? ` data-drop="${drop}"` : ""}${move ? ` data-order="${move}"` : ""}${state.openGroups.has(key) ? " open" : ""}>
       <summary${move ? ` data-move="${move}"` : ""}>
         <span class="chev" aria-hidden="true"></span>
         <span class="grow group-name">${esc(group.name)}</span>
@@ -1462,7 +1559,7 @@ function renderPlans() {
 
 function planCardHtml(p) {
   return `
-        <div class="card" data-move="plan:${p.id}">
+        <div class="card" data-move="plan:${p.id}" data-order="plan:${p.id}">
           <div class="spread">
             <div class="grow">
               <h2>${esc(p.name)}</h2>

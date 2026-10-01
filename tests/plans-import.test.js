@@ -442,3 +442,32 @@ test("a plan can be moved into a week, a folder, or neither", async () => {
   assert.deepEqual([moved.group_id, moved.folder_id], [null, null]);
   assert.equal(moved.items.length, 1, "its exercises are untouched");
 });
+
+test("plans and blocks keep the order they're dragged into", async () => {
+  const app = await phone();
+  for (const name of ["A", "B", "C"]) await addPlan(app, name);
+  await addBlock(app, "Block 1", {});
+  await addBlock(app, "Block 2", {});
+  const names = async (path) => plain(await app.run(`api("${path}")`)).map((x) => x.name);
+  assert.deepEqual(await names("/plans"), ["A", "B", "C"], "by name until dragged");
+
+  const ids = plain(await app.run("localData()")).plans.map((p) => p.id); // A, B, C
+  await put(app, "/plans/order", { ids: [ids[2], ids[0], ids[1]] });
+  assert.deepEqual(await names("/plans"), ["C", "A", "B"]);
+  await addPlan(app, "Aardvark");
+  assert.deepEqual(await names("/plans"), ["C", "A", "B", "Aardvark"], "new plans go last");
+
+  const blocks = plain(await app.run("localData()")).groups.map((g) => g.id);
+  await put(app, "/groups/order", { ids: [blocks[1], blocks[0]] });
+  assert.deepEqual(await names("/groups"), ["Block 2", "Block 1"]);
+
+  // Moving a plan to another list drops its old position there.
+  const folder = plain(await post(app, "/folders", { name: "F" }));
+  await put(app, `/plans/${ids[2]}/place`, { group_id: null, folder_id: folder.id });
+  const c = plain(await app.run("localData()")).plans.find((p) => p.id === ids[2]);
+  assert.equal(c.position, undefined);
+  // A block's position goes too when it changes folder.
+  await put(app, `/groups/${blocks[0]}`, { name: "Block 1", folder_id: folder.id });
+  const b1 = plain(await app.run("localData()")).groups.find((g) => g.id === blocks[0]);
+  assert.equal(b1.position, undefined);
+});

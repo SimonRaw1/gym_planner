@@ -733,6 +733,13 @@ body.dragging * {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* Where a held plan or block will land: a line above or below that one. */
+.drop-before {
+  box-shadow: 0 -7px 0 -4px var(--accent);
+}
+.drop-after {
+  box-shadow: 0 7px 0 -4px var(--accent);
+}
 .unfile {
   position: fixed;
   left: 0;
