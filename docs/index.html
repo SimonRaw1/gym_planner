@@ -27,7 +27,27 @@
 
     <header class="topbar">
       <h1 id="topbar-title">Train</h1>
-      <span id="topbar-note" class="topbar-note"></span>
+      <div class="topbar-end">
+        <span id="topbar-note" class="topbar-note"></span>
+        <button class="icon-btn" data-action="open-settings" aria-label="Settings">
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+            />
+          </svg>
+        </button>
+      </div>
     </header>
 
     <main id="main">
@@ -101,30 +121,6 @@
           </label>
         </div>
         <div id="history-list" class="stack"></div>
-        <div class="card data-tools">
-          <h2>Settings</h2>
-          <div class="spread" style="margin-top: 12px">
-            <span>Weight unit</span>
-            <div class="row">
-              <button class="btn small" data-action="set-unit" data-unit="kg">
-                kg
-              </button>
-              <button class="btn small ghost" data-action="set-unit" data-unit="lb">
-                lb
-              </button>
-            </div>
-          </div>
-          <h3 style="margin-top: 16px">Data backup</h3>
-          <div class="row" style="margin-top: 8px">
-            <button class="btn small ghost" data-action="export-data">
-              Export data
-            </button>
-            <button class="btn small ghost" data-action="import-data">
-              Import data
-            </button>
-          </div>
-          <input id="import-file" type="file" hidden />
-        </div>
       </section>
     </main>
 
@@ -176,6 +172,9 @@
     </div>
 
     <div id="toast" class="toast" hidden></div>
+
+    <!-- Backup file picker for Import data in the settings sheet. -->
+    <input id="import-file" type="file" hidden />
 
     <script src="app.js"></script>
   </body>

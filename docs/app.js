@@ -1378,7 +1378,6 @@ function renderUnitButtons() {
 }
 
 function renderHistory() {
-  renderUnitButtons();
   renderHistoryFilter();
   if (state.historyExercise !== null)
     return renderExerciseHistory(state.historyExercise);
@@ -1594,9 +1593,32 @@ const actions = {
     );
   },
 
+  "open-settings"() {
+    openSheet(
+      "Settings",
+      `
+        <div class="spread">
+          <span>Weight unit</span>
+          <div class="row">
+            <button class="btn small" data-action="set-unit" data-unit="kg">kg</button>
+            <button class="btn small ghost" data-action="set-unit" data-unit="lb">lb</button>
+          </div>
+        </div>
+        <h3 style="margin-top:20px">Data backup</h3>
+        <p class="muted">Your workouts are kept on this phone only. Export now
+          and then to keep a copy; Import replaces everything here.</p>
+        <div class="row" style="margin-top:10px">
+          <button class="btn small ghost" data-action="export-data">Export data</button>
+          <button class="btn small ghost" data-action="import-data">Import data</button>
+        </div>`,
+    );
+    renderUnitButtons();
+  },
+
   "set-unit"(el) {
     state.unit = el.dataset.unit === "lb" ? "lb" : "kg";
     savePref("unit", state.unit);
+    renderUnitButtons();
     refresh();
   },
 
@@ -2214,6 +2236,7 @@ $("#import-file").addEventListener("change", async (ev) => {
     state.session = null;
     syncWakeLock();
     state.exercises = await api("/exercises");
+    closeSheet();
     toast("Backup restored");
     refresh();
   } catch (err) {

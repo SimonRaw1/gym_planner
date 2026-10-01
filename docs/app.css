@@ -72,7 +72,7 @@ p {
   top: 0;
   z-index: 5;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: calc(env(safe-area-inset-top) + 14px) 16px 12px;
@@ -84,6 +84,32 @@ p {
 .topbar-note {
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.topbar-end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Settings gear: a 40px tap target, pulled in so the icon lines up with the
+ * page's right edge. */
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin: -8px -9px -8px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.icon-btn:active {
+  background: var(--surface-2);
+  color: var(--text);
 }
 
 body {
@@ -100,19 +126,16 @@ body {
   padding: 14px 16px calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 24px);
 }
 
-/* History and Plans fill the screen so their footer controls sit at the
- * bottom of the page, not just under a short list. */
-#view-history,
+/* Plans fills the screen so its footer controls sit at the bottom of the
+ * page, not just under a short list. */
 #view-plans {
   flex: 1;
   display: flex;
   flex-direction: column;
 }
-#history-list,
 #plan-list {
   margin-bottom: 16px;
 }
-#view-history .data-tools,
 .page-foot {
   margin-top: auto;
 }
