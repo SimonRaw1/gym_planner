@@ -471,3 +471,35 @@ test("plans and blocks keep the order they're dragged into", async () => {
   const b1 = plain(await app.run("localData()")).groups.find((g) => g.id === blocks[0]);
   assert.equal(b1.position, undefined);
 });
+
+test("duplicating a folder copies its blocks, weeks and plans with new uids", async () => {
+  const { app, folder } = await phoneWithFolder();
+  const copy = plain(await post(app, `/folders/${folder.id}/copy`, { name: "Nationals 2027" }));
+  assert.deepEqual(await folderLayout(app), [
+    "Mobility",
+    "Nationals 2027: Openers",
+    "Nationals 2027: Peak / Week 1 / Heavy singles",
+    "Nationals Prep: Openers",
+    "Nationals Prep: Peak / Week 1 / Heavy singles",
+    "Off season / Week 1 / Volume",
+  ]);
+  const data = plain(await app.run("localData()"));
+  const uids = [...data.plans, ...data.groups, ...data.folders].map((x) => x.uid);
+  assert.equal(new Set(uids).size, uids.length, "every uid is unique");
+  const ids = data.plans.map((p) => p.id);
+  assert.equal(new Set(ids).size, ids.length);
+
+  // Editing the copy leaves the original alone.
+  const copied = data.plans.find(
+    (p) => p.name === "Heavy singles" && p.id !== data.plans.find((q) => q.name === "Heavy singles").id,
+  );
+  await app.run(`dataCache.plans.find((p) => p.id === ${copied.id}).items[0].target_reps = 1`);
+  const original = plain(await app.run("localData()")).plans.find((p) => p.name === "Heavy singles");
+  assert.equal(original.items[0].target_reps, 5);
+
+  // A file of the original still adds nothing new when imported back; the copy is separate.
+  const file = await exportFolder(app, folder.id);
+  assert.deepEqual(await importPlans(app, file, "add"), { added: 0, skipped: 2 });
+  const copyFile = await exportFolder(app, copy.id);
+  assert.ok(copyFile.plans.every((p) => !file.plans.some((q) => q.uid === p.uid)));
+});

@@ -72,7 +72,8 @@ Settings also shows when you last exported, and flags it once that is more than
   drop it on the bar at the bottom to take it out of folders. Drag one over another
   plan or block to put it just above or below that one, which also sets the
   order they're listed in. Deleting a folder
-  keeps everything that was in it.
+  keeps everything that was in it. **Duplicate** on a folder makes a full copy of its blocks,
+  weeks and plans under a new name, to change without touching the original.
   **Export plans** shares your plans as a file; with folders it asks whether to
   export all plans or one folder. **Import plans** reads such
   a file and asks how: **Add new plans** keeps everything you have and adds only

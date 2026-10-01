@@ -508,6 +508,54 @@ async function api(path, options = {}) {
     const folder = findFolder(data, match(/^\/folders\/(\d+)$/)[1]);
     folder.name = body.name.trim();
     result = folder;
+  } else if (match(/^\/folders\/(\d+)\/copy$/) && method === "POST") {
+    // A full copy under a new name: blocks, weeks and plans, each with a new
+    // uid so a plans import never mistakes the copy for the original.
+    const from = findFolder(data, match(/^\/folders\/(\d+)\/copy$/)[1]);
+    const folder = {
+      id: data.nextIds.folder++,
+      uid: newUid(),
+      name: body.name?.trim() || `${from.name} (copy)`,
+    };
+    data.folders.push(folder);
+    const copyPlan = (plan, place) =>
+      data.plans.push({
+        ...structuredClone(plan),
+        id: data.nextIds.plan++,
+        uid: newUid(),
+        created_at: nowTs(),
+        ...place,
+      });
+    const blocks = data.groups.filter(
+      (g) => g.parent_id == null && g.folder_id === from.id,
+    );
+    blocks.forEach((block) => {
+      const blockCopy = {
+        ...block,
+        id: data.nextIds.group++,
+        uid: newUid(),
+        folder_id: folder.id,
+      };
+      data.groups.push(blockCopy);
+      data.groups
+        .filter((g) => g.parent_id === block.id)
+        .forEach((week) => {
+          const weekCopy = {
+            ...week,
+            id: data.nextIds.group++,
+            uid: newUid(),
+            parent_id: blockCopy.id,
+          };
+          data.groups.push(weekCopy);
+          data.plans
+            .filter((p) => p.group_id === week.id)
+            .forEach((plan) => copyPlan(plan, { group_id: weekCopy.id, folder_id: null }));
+        });
+    });
+    data.plans
+      .filter((p) => p.group_id == null && p.folder_id === from.id)
+      .forEach((plan) => copyPlan(plan, { group_id: null, folder_id: folder.id }));
+    result = folder;
   } else if (match(/^\/folders\/(\d+)$/) && method === "DELETE") {
     // Only the folder goes; its blocks and plans move out of it.
     const id = Number(match(/^\/folders\/(\d+)$/)[1]);
@@ -1575,6 +1623,7 @@ function renderPlans() {
         plural(count, "plan"),
         `<button class="btn small ghost" data-action="new-block" data-folder="${folder.id}">+ Block</button>
         <button class="btn small ghost" data-action="new-plan" data-folder="${folder.id}">+ Plan</button>
+        <button class="btn small ghost" data-action="copy-folder" data-id="${folder.id}">Duplicate</button>
         ${editTools(folder, "folder")}`,
         { key: `f${folder.id}`, kind: "folder", drop: `folder:${folder.id}` },
       );
@@ -2316,6 +2365,30 @@ const actions = {
       saveOpenGroups();
     }
     closeSheet();
+    refresh();
+  },
+
+  "copy-folder"(el) {
+    const folder = state.folders.find((f) => f.id === Number(el.dataset.id));
+    if (!folder) return;
+    openGroupSheet("Duplicate folder", `${folder.name} (copy)`, `data-id="${folder.id}"`, {
+      action: "folder-copy",
+      extra:
+        '<p class="muted">Copies every block, week and plan in it. Logged workouts stay with the original.</p>',
+    });
+  },
+
+  async "folder-copy"(el) {
+    const name = $("#group-name").value.trim();
+    if (!name) return toast("Give it a name");
+    const folder = await api(`/folders/${el.dataset.id}/copy`, {
+      method: "POST",
+      body: { name },
+    });
+    state.openGroups.add(`f${folder.id}`);
+    saveOpenGroups();
+    closeSheet();
+    toast(`Made ${name}`);
     refresh();
   },
 
