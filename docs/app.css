@@ -327,6 +327,14 @@ body {
 .row.wrap {
   flex-wrap: wrap;
 }
+/* Rows of buttons inside a wrapping row: each takes a full line. */
+.row.wrap > .row {
+  flex-basis: 100%;
+}
+/* Buttons share the line equally. */
+.row.fill > .btn {
+  flex: 1;
+}
 .spread {
   display: flex;
   justify-content: space-between;

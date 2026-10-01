@@ -1621,10 +1621,15 @@ function renderPlans() {
         inBlocks.map(blockHtml).join("") + loose.map(planCardHtml).join("") ||
           '<p class="muted">Nothing in this folder yet.</p>',
         plural(count, "plan"),
-        `<button class="btn small ghost" data-action="new-block" data-folder="${folder.id}">+ Block</button>
-        <button class="btn small ghost" data-action="new-plan" data-folder="${folder.id}">+ Plan</button>
-        <button class="btn small ghost" data-action="copy-folder" data-id="${folder.id}">Duplicate</button>
-        ${editTools(folder, "folder")}`,
+        // Adding things gets a full-width row; managing the folder the next.
+        `<div class="row fill">
+          <button class="btn small ghost" data-action="new-block" data-folder="${folder.id}">+ Block</button>
+          <button class="btn small ghost" data-action="new-plan" data-folder="${folder.id}">+ Plan</button>
+        </div>
+        <div class="row">
+          <button class="btn small ghost" data-action="copy-folder" data-id="${folder.id}">Duplicate</button>
+          ${editTools(folder, "folder")}
+        </div>`,
         { key: `f${folder.id}`, kind: "folder", drop: `folder:${folder.id}` },
       );
     })
