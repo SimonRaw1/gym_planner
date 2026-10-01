@@ -1884,13 +1884,6 @@ function renderUnitButtons() {
   });
 }
 
-function renderThemeButtons() {
-  const current = document.documentElement.dataset.theme;
-  $$('[data-action="set-theme"]').forEach((btn) => {
-    btn.setAttribute("aria-pressed", String(btn.dataset.value === current));
-  });
-}
-
 function renderHistory() {
   renderHistoryFilter();
   if (state.historyExercise !== null)
@@ -2119,17 +2112,11 @@ const actions = {
             <button class="btn small ghost" data-action="set-unit" data-unit="lb">lb</button>
           </div>
         </div>
-        <h3 style="margin-top:20px">Theme</h3>
-        <div class="theme-grid">
-          ${THEMES.map(
-            ([id, label]) => `
-            <button class="theme-swatch" data-theme="${id}" data-action="set-theme"
-              data-value="${id}" aria-pressed="false">
-              <span>${label}</span>
-              <span class="theme-dots" aria-hidden="true"><i style="background:var(--accent)"></i><i
-                style="background:var(--surface-2)"></i><i style="background:var(--good)"></i></span>
-            </button>`,
-          ).join("")}
+        <div class="spread" style="margin-top:14px">
+          <span>Theme</span>
+          <select id="theme-select" aria-label="Theme" style="width:auto">
+            ${THEMES.map(([id, label]) => `<option value="${id}">${label}</option>`).join("")}
+          </select>
         </div>
         <h3 style="margin-top:20px">Data backup</h3>
         <p class="muted">Your workouts are kept on this phone only. Export now
@@ -2141,13 +2128,12 @@ const actions = {
         </div>`,
     );
     renderUnitButtons();
-    renderThemeButtons();
+    const themeSelect = $("#theme-select");
+    themeSelect.value = document.documentElement.dataset.theme;
+    themeSelect.addEventListener("change", () => {
+      savePref("theme", applyTheme(themeSelect.value));
+    });
     renderLastBackup();
-  },
-
-  "set-theme"(el) {
-    savePref("theme", applyTheme(el.dataset.value));
-    renderThemeButtons();
   },
 
   "set-unit"(el) {
