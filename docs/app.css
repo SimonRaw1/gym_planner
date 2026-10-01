@@ -118,6 +118,10 @@ p {
 }
 
 body {
+  /* No text selection or iOS callout on long-press; inputs opt back in below. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -321,6 +325,13 @@ textarea {
   padding: 11px 12px;
   width: 100%;
   min-height: 46px;
+}
+input,
+textarea,
+[contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
 }
 input:focus,
 select:focus,
