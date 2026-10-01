@@ -421,3 +421,24 @@ test("Overwrite with a folder file replaces folders too", async () => {
     "Nationals Prep: Peak / Week 1 / Heavy singles",
   ]);
 });
+
+test("a plan can be moved into a week, a folder, or neither", async () => {
+  const { app, folder } = await phoneWithFolder();
+  const data = plain(await app.run("localData()"));
+  const mobility = data.plans.find((p) => p.name === "Mobility");
+  const peakWeek = data.groups.find(
+    (g) => g.parent_id === data.groups.find((b) => b.name === "Peak").id,
+  );
+  const place = (body) => put(app, `/plans/${mobility.id}/place`, body);
+
+  await place({ group_id: null, folder_id: folder.id });
+  assert.ok((await folderLayout(app)).includes("Nationals Prep: Mobility"));
+  await place({ group_id: peakWeek.id, folder_id: folder.id });
+  assert.ok((await folderLayout(app)).includes("Nationals Prep: Peak / Week 1 / Mobility"));
+  await place({ group_id: null, folder_id: null });
+  assert.ok((await folderLayout(app)).includes("Mobility"));
+  const after = plain(await app.run("localData()"));
+  const moved = after.plans.find((p) => p.id === mobility.id);
+  assert.deepEqual([moved.group_id, moved.folder_id], [null, null]);
+  assert.equal(moved.items.length, 1, "its exercises are untouched");
+});

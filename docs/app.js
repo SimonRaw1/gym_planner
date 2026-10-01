@@ -374,6 +374,16 @@ async function api(path, options = {}) {
     plan.folder_id =
       plan.group_id == null ? folderId(data, body.folder_id) : null;
     result = plan;
+  } else if (match(/^\/plans\/(\d+)\/place$/) && method === "PUT") {
+    // Move a plan into a week, a folder (outside weeks), or neither.
+    const plan = data.plans.find(
+      (item) => item.id === Number(match(/^\/plans\/(\d+)\/place$/)[1]),
+    );
+    if (!plan) throw new Error("Plan not found");
+    plan.group_id = weekId(data, body.group_id);
+    plan.folder_id =
+      plan.group_id == null ? folderId(data, body.folder_id) : null;
+    result = plan;
   } else if (match(/^\/plans\/(\d+)$/) && method === "DELETE") {
     const id = Number(match(/^\/plans\/(\d+)$/)[1]);
     data.plans = data.plans.filter((plan) => plan.id !== id);
@@ -902,6 +912,201 @@ const GRIP = `<button type="button" class="drag-handle" data-drag-handle aria-la
   <circle cx="9" cy="10" r="1.6"/><circle cx="3" cy="16" r="1.6"/><circle cx="9" cy="16" r="1.6"/></g></svg>
 </button>`;
 
+// ---------------------------------------------- hold and drag into a folder
+
+/* On the Plans tab, touch and hold a plan card or a block's title, then drag
+ * it onto a folder (or, for a plan, a week) and let go. A bar at the bottom
+ * takes it out of any folder. Moving the finger before the hold completes is
+ * a normal scroll. */
+
+const HOLD_MS = 450;
+let hold = null; // a press that may become a move
+let move = null; // a move in progress
+
+document.addEventListener("pointerdown", (ev) => {
+  if (drag || move || ev.button > 0) return;
+  const source = ev.target.closest("[data-move]");
+  if (!source || ev.target.closest("button, input, select, a")) return;
+  cancelHold();
+  hold = {
+    source,
+    pointerId: ev.pointerId,
+    x: ev.clientX,
+    y: ev.clientY,
+    timer: setTimeout(startMove, HOLD_MS),
+  };
+});
+
+function cancelHold() {
+  if (hold) clearTimeout(hold.timer);
+  hold = null;
+}
+
+function startMove() {
+  const { source, pointerId, x, y } = hold;
+  hold = null;
+  const [kind, id] = source.dataset.move.split(":");
+  const rect = source.getBoundingClientRect();
+  const ghost = source.cloneNode(true);
+  ghost.classList.add("drag-ghost", "move-ghost");
+  Object.assign(ghost.style, {
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+  });
+  document.body.append(ghost);
+  source.classList.add("moving");
+  $("#toast").hidden = true;
+  $("#unfile").hidden = false;
+  document.body.classList.add("dragging");
+  move = {
+    kind,
+    id: Number(id),
+    source,
+    ghost,
+    pointerId,
+    from: dropTarget(kind, source.parentElement),
+    target: null,
+    dx: x - rect.left,
+    dy: y - rect.top,
+    x,
+    y,
+    frame: requestAnimationFrame(moveAutoScroll),
+  };
+  buzz(20);
+  positionMove();
+}
+
+/** The nearest place at or above `el` that can take this kind of item. */
+function dropTarget(kind, el) {
+  for (let node = el?.closest("[data-drop]"); node; node = node.parentElement?.closest("[data-drop]")) {
+    const [where] = node.dataset.drop.split(":");
+    if (where !== "week" || kind === "plan") return node;
+  }
+  return null;
+}
+
+function positionMove() {
+  const { ghost, x, y } = move;
+  ghost.style.transform = `translate(${x - move.dx - parseFloat(ghost.style.left)}px, ${y - move.dy - parseFloat(ghost.style.top)}px)`;
+  const under = document.elementFromPoint(x, y);
+  const target = dropTarget(move.kind, under);
+  if (target === move.target) return;
+  move.target?.classList.remove("drop-here");
+  move.target = target;
+  if (target && target !== move.from) {
+    target.classList.add("drop-here");
+    buzz(8);
+  }
+}
+
+/** Scroll the page while the finger sits near the top or just above the bar. */
+function moveAutoScroll() {
+  if (!move) return;
+  const top = $(".topbar").getBoundingClientRect().bottom;
+  const bottom = $("#unfile").getBoundingClientRect().top;
+  const zone = 70;
+  let speed = 0;
+  if (move.y < top + zone) speed = -Math.ceil((top + zone - move.y) / 6);
+  else if (move.y > bottom - zone && move.y < bottom)
+    speed = Math.ceil((move.y - (bottom - zone)) / 6);
+  if (speed) {
+    window.scrollBy(0, speed);
+    positionMove();
+  }
+  move.frame = requestAnimationFrame(moveAutoScroll);
+}
+
+document.addEventListener("pointermove", (ev) => {
+  if (hold && ev.pointerId === hold.pointerId) {
+    // Moved before the hold finished: the finger is scrolling.
+    if (Math.hypot(ev.clientX - hold.x, ev.clientY - hold.y) > 10) cancelHold();
+    return;
+  }
+  if (!move || ev.pointerId !== move.pointerId) return;
+  move.x = ev.clientX;
+  move.y = ev.clientY;
+  positionMove();
+});
+
+// Once a move starts the page must not scroll under the finger, or the
+// browser cancels the pointer.
+document.addEventListener(
+  "touchmove",
+  (ev) => {
+    if (move) ev.preventDefault();
+  },
+  { passive: false },
+);
+
+function endMove(ev) {
+  if (hold && ev.pointerId === hold.pointerId) cancelHold();
+  if (!move || ev.pointerId !== move.pointerId) return;
+  const { kind, id, source, ghost, target, from } = move;
+  cancelAnimationFrame(move.frame);
+  ghost.remove();
+  source.classList.remove("moving");
+  target?.classList.remove("drop-here");
+  $("#unfile").hidden = true;
+  document.body.classList.remove("dragging");
+  move = null;
+  // The release would otherwise click whatever is under it, like a summary.
+  swallowClicksUntil = Date.now() + 500;
+  if (ev.type === "pointercancel" || !target || target === from) return;
+  const [where, whereId] = target.dataset.drop.split(":");
+  moveTo(kind, id, where, Number(whereId)).catch((err) => toast(err.message));
+}
+
+let swallowClicksUntil = 0;
+document.addEventListener(
+  "click",
+  (ev) => {
+    if (Date.now() >= swallowClicksUntil) return;
+    swallowClicksUntil = 0;
+    ev.preventDefault();
+    ev.stopPropagation();
+  },
+  true,
+);
+
+document.addEventListener("pointerup", endMove);
+document.addEventListener("pointercancel", endMove);
+document.addEventListener("contextmenu", (ev) => {
+  if (move || hold) ev.preventDefault();
+});
+
+/** Put a plan or block in a folder ("folder"), a plan in a week ("week"), or
+ * either in no folder ("none"). */
+async function moveTo(kind, id, where, whereId) {
+  const folder = where === "folder" ? whereId : null;
+  if (kind === "block") {
+    const block = state.groups.find((g) => g.id === id);
+    if (!block) return;
+    await api(`/groups/${id}`, {
+      method: "PUT",
+      body: { name: block.name, folder_id: folder },
+    });
+  } else {
+    await api(`/plans/${id}/place`, {
+      method: "PUT",
+      body: { group_id: where === "week" ? whereId : null, folder_id: folder },
+    });
+  }
+  // Open where it went so it can be seen there.
+  if (folder) state.openGroups.add(`f${folder}`);
+  if (where === "week") state.openGroups.add(whereId);
+  saveOpenGroups();
+  const name =
+    where === "folder"
+      ? state.folders.find((f) => f.id === whereId)?.name
+      : where === "week"
+        ? state.groups.find((g) => g.id === whereId)?.name
+        : null;
+  buzz(15);
+  toast(name ? `Moved to ${name}` : "Moved out of folders");
+  refresh();
+}
+
 // ------------------------------------------------------------- rest timer
 
 function startRest(seconds) {
@@ -1173,10 +1378,17 @@ function renderPlans() {
   const looseIn = (folderId) =>
     plansIn(null).filter((p) => (p.folder_id ?? null) === folderId);
 
-  // Folders share openGroups with blocks and weeks, keyed "f<id>".
-  const groupHtml = (group, inner, count, tools, key = group.id, kind = "group") => `
-    <details class="group${kind === "folder" ? " folder" : ""}" data-${kind}="${group.id}"${state.openGroups.has(key) ? " open" : ""}>
-      <summary>
+  // Folders share openGroups with blocks and weeks, keyed "f<id>". `drop`
+  // makes it a place to drop a held plan or block; `move` lets a block be held.
+  const groupHtml = (
+    group,
+    inner,
+    count,
+    tools,
+    { key = group.id, kind = "group", drop = "", move = "" } = {},
+  ) => `
+    <details class="group${kind === "folder" ? " folder" : ""}" data-${kind}="${group.id}"${drop ? ` data-drop="${drop}"` : ""}${state.openGroups.has(key) ? " open" : ""}>
+      <summary${move ? ` data-move="${move}"` : ""}>
         <span class="chev" aria-hidden="true"></span>
         <span class="grow group-name">${esc(group.name)}</span>
         <span class="pill">${count}</span>
@@ -1202,6 +1414,7 @@ function renderPlans() {
           plural(plans.length, "plan"),
           `<button class="btn small ghost" data-action="new-plan" data-group="${week.id}">+ Plan</button>
           ${editTools(week)}`,
+          { drop: `week:${week.id}` },
         );
       })
       .join("");
@@ -1211,6 +1424,7 @@ function renderPlans() {
       plural(blockWeeks.length, "week"),
       `<button class="btn small ghost" data-action="new-week" data-parent="${block.id}">+ Week</button>
       ${editTools(block)}`,
+      { move: `block:${block.id}` },
     );
   };
 
@@ -1231,8 +1445,7 @@ function renderPlans() {
         `<button class="btn small ghost" data-action="new-block" data-folder="${folder.id}">+ Block</button>
         <button class="btn small ghost" data-action="new-plan" data-folder="${folder.id}">+ Plan</button>
         ${editTools(folder, "folder")}`,
-        `f${folder.id}`,
-        "folder",
+        { key: `f${folder.id}`, kind: "folder", drop: `folder:${folder.id}` },
       );
     })
     .join("");
@@ -1249,7 +1462,7 @@ function renderPlans() {
 
 function planCardHtml(p) {
   return `
-        <div class="card">
+        <div class="card" data-move="plan:${p.id}">
           <div class="spread">
             <div class="grow">
               <h2>${esc(p.name)}</h2>

@@ -67,7 +67,9 @@ Settings also shows when you last exported, and flags it once that is more than
   editor. Deleting a block or week keeps its plans under Other plans.
   Optionally, gather blocks and plans into a folder (e.g. Nationals Prep) with
   **+ New folder**, then **+ Block** or **+ Plan** inside it; move a block in or
-  out with Rename, and a plan with the Folder or week picker. Deleting a folder
+  out with Rename, and a plan with the Folder or week picker. Or touch and hold a
+  plan or a block's title and drag it onto a folder (a plan also onto a week);
+  drop it on the bar at the bottom to take it out of folders. Deleting a folder
   keeps everything that was in it.
   **Export plans** shares your plans as a file; with folders it asks whether to
   export all plans or one folder. **Import plans** reads such
