@@ -13,7 +13,7 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
 function currentBackup() {
   return {
     version: 1,
-    nextIds: { exercise: 4, plan: 3, session: 3, set: 6, group: 3 },
+    nextIds: { exercise: 4, plan: 3, session: 3, set: 6, group: 3, folder: 2 },
     exercises: [
       { id: 1, name: "Back Squat", muscle_group: "legs", equipment: "barbell", notes: "" },
       { id: 2, name: "Bench Press", muscle_group: "chest", equipment: "barbell", notes: "" },
@@ -31,12 +31,13 @@ function currentBackup() {
           { exercise_id: 2, target_sets: 3, target_reps: 8, target_rpe: null, rest_seconds: 120 },
         ],
       },
-      { id: 2, name: "Mobility", notes: "", group_id: null, created_at: "2026-09-02 08:00:00", items: [] },
+      { id: 2, name: "Mobility", notes: "", group_id: null, folder_id: 1, created_at: "2026-09-02 08:00:00", items: [] },
     ],
     groups: [
-      { id: 1, name: "Strength block", parent_id: null },
+      { id: 1, name: "Strength block", parent_id: null, folder_id: 1 },
       { id: 2, name: "Week 1", parent_id: 1 },
     ],
+    folders: [{ id: 1, uid: "f-nationals", name: "Nationals Prep" }],
     sessions: [
       {
         id: 1,
@@ -69,6 +70,16 @@ function currentBackup() {
     last_export: "2026-08-30 10:00:00",
     exported_at: "2026-09-06T09:15:42.123Z",
   };
+}
+
+/** A backup from after blocks and weeks but before folders. */
+function beforeFoldersBackup() {
+  const backup = currentBackup();
+  delete backup.folders;
+  delete backup.nextIds.folder;
+  delete backup.plans[1].folder_id;
+  delete backup.groups[0].folder_id;
+  return backup;
 }
 
 /** A version 1 backup from before plan groups, nextIds in backups, session
@@ -179,7 +190,8 @@ test("an old backup is migrated on import", async () => {
   const data = await restore(app, oldBackup());
 
   assert.deepEqual(data.groups, []);
-  assert.deepEqual(data.nextIds, { exercise: 8, plan: 10, group: 1, session: 6, set: 12 });
+  assert.deepEqual(data.folders, []);
+  assert.deepEqual(data.nextIds, { exercise: 8, plan: 10, group: 1, folder: 1, session: 6, set: 12 });
   assert.deepEqual(data.plans[1].items, [], "a plan with no items gets an empty list");
   assert.deepEqual(data.sessions[1].sets, [], "a session with no sets gets an empty list");
   assert.equal(data.last_export, null, "no export time without exported_at");
@@ -224,9 +236,32 @@ test("an old backup works in the app after import", async () => {
 
 test("stale nextIds in a backup are ignored", async () => {
   const backup = currentBackup();
-  backup.nextIds = { exercise: 1, plan: 1, session: 1, set: 1, group: 1 };
+  backup.nextIds = { exercise: 1, plan: 1, session: 1, set: 1, group: 1, folder: 1 };
   const data = await restore(loadApp(), backup);
-  assert.deepEqual(data.nextIds, { exercise: 4, plan: 3, group: 3, session: 3, set: 6 });
+  assert.deepEqual(data.nextIds, { exercise: 4, plan: 3, group: 3, folder: 2, session: 3, set: 6 });
+});
+
+test("a backup from before folders imports with nothing in a folder", async () => {
+  const app = loadApp();
+  const data = await restore(app, beforeFoldersBackup());
+  assert.deepEqual(data.folders, []);
+  assert.equal(data.nextIds.folder, 1);
+  assert.deepEqual(
+    data.plans.map((p) => p.name),
+    ["Day 1", "Mobility"],
+    "every plan is kept",
+  );
+  assert.deepEqual(data.groups.map((g) => g.name), ["Strength block", "Week 1"]);
+
+  // Folders work straight away on the migrated data.
+  const folder = plain(
+    await app.run('api("/folders", { method: "POST", body: { name: "Meet prep" } })'),
+  );
+  assert.equal(folder.id, 1);
+  await app.run('api("/groups/1", { method: "PUT", body: { name: "Strength block", folder_id: 1 } })');
+  const after = plain(await app.run("localData()"));
+  assert.equal(after.groups[0].folder_id, 1);
+  assert.equal(after.plans[0].group_id, 2, "Day 1 stays in its week");
 });
 
 test("files that are not backups are refused", () => {

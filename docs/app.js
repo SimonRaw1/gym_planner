@@ -9,6 +9,7 @@ const state = {
   view: "train",
   exercises: [],
   plans: [],
+  folders: [], // optional top level: a folder holds blocks and plans
   groups: [], // blocks (parent_id null) and the weeks inside them
   openGroups: new Set(loadPref("open-groups", [])), // expanded on the Plans tab
   session: null,
@@ -234,10 +235,13 @@ function sessionDetail(data, id) {
 const maxId = (items) =>
   items.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0);
 
-/** Plan groups arrived after version 1 data, so older data has none. */
+/** Plan groups and folders arrived after version 1 data, so older data has
+ * none. Everything without a folder_id simply sits outside any folder. */
 function ensureGroups(data) {
   if (!Array.isArray(data.groups)) data.groups = [];
   if (!data.nextIds.group) data.nextIds.group = maxId(data.groups) + 1;
+  if (!Array.isArray(data.folders)) data.folders = [];
+  if (!data.nextIds.folder) data.nextIds.folder = maxId(data.folders) + 1;
 }
 
 /** Natural order, so "Week 10" comes after "Week 9". */
@@ -251,6 +255,31 @@ const byName = (a, b) =>
 function weekId(data, id) {
   const week = data.groups.find((g) => g.id === Number(id));
   return week && week.parent_id != null ? week.id : null;
+}
+
+/** A folder id that exists, else null (no folder). */
+function folderId(data, id) {
+  if (id == null || id === "") return null;
+  return data.folders.find((f) => f.id === Number(id))?.id ?? null;
+}
+
+function findFolder(data, id) {
+  const folder = data.folders.find((f) => f.id === Number(id));
+  if (!folder) throw new Error("Folder not found");
+  return folder;
+}
+
+/** The folder a plan is in: its block's folder when it's in a week, else its
+ * own folder_id. */
+function planFolderId(data, plan) {
+  const week = data.groups.find(
+    (g) => g.id === plan.group_id && g.parent_id != null,
+  );
+  if (week) {
+    const block = data.groups.find((g) => g.id === week.parent_id);
+    return block?.folder_id ?? null;
+  }
+  return plan.folder_id ?? null;
 }
 
 function findGroup(data, id) {
@@ -311,9 +340,12 @@ async function api(path, options = {}) {
       name: body.name.trim(),
       notes: body.notes || "",
       group_id: weekId(data, body.group_id),
+      folder_id: null,
       created_at: nowTs(),
       items: body.items || [],
     };
+    // A plan in a week is in its block's folder; only loose plans keep one.
+    if (plan.group_id == null) plan.folder_id = folderId(data, body.folder_id);
     data.plans.push(plan);
     result = plan;
   } else if (match(/^\/plans\/(\d+)$/) && method === "GET") {
@@ -339,6 +371,8 @@ async function api(path, options = {}) {
       group_id: weekId(data, body.group_id),
       items: body.items || [],
     });
+    plan.folder_id =
+      plan.group_id == null ? folderId(data, body.folder_id) : null;
     result = plan;
   } else if (match(/^\/plans\/(\d+)$/) && method === "DELETE") {
     const id = Number(match(/^\/plans\/(\d+)$/)[1]);
@@ -357,11 +391,15 @@ async function api(path, options = {}) {
       name: body.name.trim(),
       parent_id: parent ? parent.id : null,
     };
+    // Blocks can sit in a folder; weeks go wherever their block is.
+    if (!parent) group.folder_id = folderId(data, body.folder_id);
     data.groups.push(group);
     result = group;
   } else if (match(/^\/groups\/(\d+)$/) && method === "PUT") {
     const group = findGroup(data, match(/^\/groups\/(\d+)$/)[1]);
     group.name = body.name.trim();
+    if (group.parent_id == null && "folder_id" in body)
+      group.folder_id = folderId(data, body.folder_id);
     result = group;
   } else if (match(/^\/groups\/(\d+)$/) && method === "DELETE") {
     // A block takes its weeks with it; their plans move to "Other plans".
@@ -371,9 +409,33 @@ async function api(path, options = {}) {
         .filter((g) => g.id === id || g.parent_id === id)
         .map((g) => g.id),
     );
-    data.groups = data.groups.filter((g) => !gone.has(g.id));
+    // Out of the week, but still in the folder its block was in.
     data.plans.forEach((plan) => {
-      if (gone.has(plan.group_id)) plan.group_id = null;
+      if (!gone.has(plan.group_id)) return;
+      plan.folder_id = planFolderId(data, plan);
+      plan.group_id = null;
+    });
+    data.groups = data.groups.filter((g) => !gone.has(g.id));
+  } else if (path === "/folders" && method === "GET")
+    result = [...data.folders].sort(byName);
+  else if (path === "/folders" && method === "POST") {
+    const folder = {
+      id: data.nextIds.folder++,
+      uid: newUid(),
+      name: body.name.trim(),
+    };
+    data.folders.push(folder);
+    result = folder;
+  } else if (match(/^\/folders\/(\d+)$/) && method === "PUT") {
+    const folder = findFolder(data, match(/^\/folders\/(\d+)$/)[1]);
+    folder.name = body.name.trim();
+    result = folder;
+  } else if (match(/^\/folders\/(\d+)$/) && method === "DELETE") {
+    // Only the folder goes; its blocks and plans move out of it.
+    const id = Number(match(/^\/folders\/(\d+)$/)[1]);
+    data.folders = data.folders.filter((f) => f.id !== id);
+    [...data.groups, ...data.plans].forEach((item) => {
+      if (item.folder_id === id) item.folder_id = null;
     });
   } else if (path === "/sessions/active" && method === "GET") {
     const session = data.sessions
@@ -1096,8 +1158,9 @@ function renderActiveSession() {
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-/** Plans tab: blocks, each holding weeks, each holding plans. Plans outside
- * any week are listed after the blocks. */
+/** Plans tab: folders first, each holding blocks and plans, then blocks
+ * outside any folder (each holding weeks, each holding plans), then plans in
+ * neither. Folders are optional: without any, the tab is just blocks. */
 function renderPlans() {
   const weeks = new Set(
     state.groups.filter((g) => g.parent_id != null).map((g) => g.id),
@@ -1105,10 +1168,14 @@ function renderPlans() {
   const plansIn = (id) =>
     state.plans.filter((p) => (weeks.has(p.group_id) ? p.group_id : null) === id);
   const blocks = state.groups.filter((g) => g.parent_id == null);
-  const loose = plansIn(null);
+  const blocksIn = (folderId) =>
+    blocks.filter((b) => (b.folder_id ?? null) === folderId);
+  const looseIn = (folderId) =>
+    plansIn(null).filter((p) => (p.folder_id ?? null) === folderId);
 
-  const groupHtml = (group, inner, count, tools) => `
-    <details class="group" data-group="${group.id}"${state.openGroups.has(group.id) ? " open" : ""}>
+  // Folders share openGroups with blocks and weeks, keyed "f<id>".
+  const groupHtml = (group, inner, count, tools, key = group.id, kind = "group") => `
+    <details class="group${kind === "folder" ? " folder" : ""}" data-${kind}="${group.id}"${state.openGroups.has(key) ? " open" : ""}>
       <summary>
         <span class="chev" aria-hidden="true"></span>
         <span class="grow group-name">${esc(group.name)}</span>
@@ -1119,43 +1186,65 @@ function renderPlans() {
         <div class="row wrap">${tools}</div>
       </div>
     </details>`;
-  const editTools = (group) => `
-    <button class="btn small ghost" data-action="rename-group" data-id="${group.id}">Rename</button>
-    <button class="btn small danger" data-action="del-group" data-id="${group.id}">Delete</button>`;
+  const editTools = (group, kind = "group") => `
+    <button class="btn small ghost" data-action="rename-${kind}" data-id="${group.id}">Rename</button>
+    <button class="btn small danger" data-action="del-${kind}" data-id="${group.id}">Delete</button>`;
 
-  const blocksHtml = blocks
-    .map((block) => {
-      const blockWeeks = state.groups.filter((g) => g.parent_id === block.id);
-      const weeksHtml = blockWeeks
-        .map((week) => {
-          const plans = plansIn(week.id);
-          return groupHtml(
-            week,
-            plans.map(planCardHtml).join("") ||
-              '<p class="muted">No plans in this week yet.</p>',
-            plural(plans.length, "plan"),
-            `<button class="btn small ghost" data-action="new-plan" data-group="${week.id}">+ Plan</button>
-            ${editTools(week)}`,
-          );
-        })
-        .join("");
+  const blockHtml = (block) => {
+    const blockWeeks = state.groups.filter((g) => g.parent_id === block.id);
+    const weeksHtml = blockWeeks
+      .map((week) => {
+        const plans = plansIn(week.id);
+        return groupHtml(
+          week,
+          plans.map(planCardHtml).join("") ||
+            '<p class="muted">No plans in this week yet.</p>',
+          plural(plans.length, "plan"),
+          `<button class="btn small ghost" data-action="new-plan" data-group="${week.id}">+ Plan</button>
+          ${editTools(week)}`,
+        );
+      })
+      .join("");
+    return groupHtml(
+      block,
+      weeksHtml || '<p class="muted">No weeks in this block yet.</p>',
+      plural(blockWeeks.length, "week"),
+      `<button class="btn small ghost" data-action="new-week" data-parent="${block.id}">+ Week</button>
+      ${editTools(block)}`,
+    );
+  };
+
+  const foldersHtml = state.folders
+    .map((folder) => {
+      const inBlocks = blocksIn(folder.id);
+      const loose = looseIn(folder.id);
+      const blockIds = new Set(inBlocks.map((b) => b.id));
+      const count = state.plans.filter((p) => {
+        const week = state.groups.find((g) => g.id === p.group_id && weeks.has(g.id));
+        return week ? blockIds.has(week.parent_id) : p.folder_id === folder.id;
+      }).length;
       return groupHtml(
-        block,
-        weeksHtml || '<p class="muted">No weeks in this block yet.</p>',
-        plural(blockWeeks.length, "week"),
-        `<button class="btn small ghost" data-action="new-week" data-parent="${block.id}">+ Week</button>
-        ${editTools(block)}`,
+        folder,
+        inBlocks.map(blockHtml).join("") + loose.map(planCardHtml).join("") ||
+          '<p class="muted">Nothing in this folder yet.</p>',
+        plural(count, "plan"),
+        `<button class="btn small ghost" data-action="new-block" data-folder="${folder.id}">+ Block</button>
+        <button class="btn small ghost" data-action="new-plan" data-folder="${folder.id}">+ Plan</button>
+        ${editTools(folder, "folder")}`,
+        `f${folder.id}`,
+        "folder",
       );
     })
     .join("");
 
+  const loose = looseIn(null);
   const looseHtml = loose.length
-    ? `${blocks.length ? '<h3 class="group-label">Other plans</h3>' : ""}${loose.map(planCardHtml).join("")}`
+    ? `${blocks.length || state.folders.length ? '<h3 class="group-label">Other plans</h3>' : ""}${loose.map(planCardHtml).join("")}`
     : "";
 
   $("#plan-list").innerHTML =
-    blocksHtml + looseHtml ||
-    '<p class="empty">No plans yet.<br>A plan is a named list of exercises with targets.<br>Group plans into blocks and weeks with + New block.</p>';
+    foldersHtml + blocksIn(null).map(blockHtml).join("") + looseHtml ||
+    '<p class="empty">No plans yet.<br>A plan is a named list of exercises with targets.<br>Group plans into blocks and weeks with + New block, and blocks into folders with + New folder.</p>';
 }
 
 function planCardHtml(p) {
@@ -1213,7 +1302,7 @@ function planEditorHtml() {
         <input id="draft-name" value="${esc(d.name)}" placeholder="Push day"></div>
       <div><label>Notes</label>
         <input id="draft-notes" value="${esc(d.notes)}" placeholder="optional"></div>
-      ${weekSelectHtml(d.group_id)}
+      ${placeSelectHtml(d.group_id, d.folder_id)}
       ${items ? `<div class="stack" data-drag-list="plan">${items}</div>` : '<p class="muted">No exercises yet.</p>'}
       <button class="btn ghost" data-action="draft-add">+ Add exercise</button>
     </div>`;
@@ -1222,34 +1311,51 @@ function planEditorHtml() {
 const PLAN_SAVE =
   '<button class="btn good" data-action="draft-save">Save plan</button>';
 
-/** Which week the plan sits in, with weeks listed under their block. */
-function weekSelectHtml(groupId) {
+/** Where the plan sits: a week (listed under its block), a folder without a
+ * week, or neither. Values are "w<week id>", "f<folder id>" or "". */
+function placeSelectHtml(groupId, folderId) {
   const blocks = state.groups.filter((g) => g.parent_id == null);
-  const options = blocks
-    .map((block) => {
-      const weeks = state.groups.filter((g) => g.parent_id === block.id);
-      if (!weeks.length) return "";
-      return `<optgroup label="${esc(block.name)}">${weeks
-        .map(
-          (w) =>
-            `<option value="${w.id}"${w.id === groupId ? " selected" : ""}>${esc(block.name)} › ${esc(w.name)}</option>`,
-        )
-        .join("")}</optgroup>`;
+  const weekOptions = (block) =>
+    state.groups
+      .filter((g) => g.parent_id === block.id)
+      .map(
+        (w) =>
+          `<option value="w${w.id}"${w.id === groupId ? " selected" : ""}>${esc(block.name)} › ${esc(w.name)}</option>`,
+      )
+      .join("");
+  const folders = state.folders
+    .map((folder) => {
+      const inFolder = blocks
+        .filter((b) => b.folder_id === folder.id)
+        .map(weekOptions)
+        .join("");
+      const here = groupId == null && folderId === folder.id;
+      return `<optgroup label="${esc(folder.name)}">
+        <option value="f${folder.id}"${here ? " selected" : ""}>${esc(folder.name)}, no week</option>${inFolder}</optgroup>`;
     })
     .join("");
-  if (!options) return "";
+  const unfoldered = blocks
+    .filter((b) => b.folder_id == null)
+    .map((block) => {
+      const options = weekOptions(block);
+      return options ? `<optgroup label="${esc(block.name)}">${options}</optgroup>` : "";
+    })
+    .join("");
+  if (!folders && !unfoldered) return "";
+  const label = state.folders.length ? "Folder or week" : "Week";
   return `
-      <div><label for="draft-group">Week</label>
-        <select id="draft-group"><option value="">No week</option>${options}</select></div>`;
+      <div><label for="draft-group">${label}</label>
+        <select id="draft-group"><option value="">None</option>${folders}${unfoldered}</select></div>`;
 }
 
-function openPlanEditor(plan, groupId = null) {
+function openPlanEditor(plan, groupId = null, folderId = null) {
   state.draft = plan
     ? {
         id: plan.id,
         name: plan.name,
         notes: plan.notes,
         group_id: plan.group_id ?? null,
+        folder_id: plan.folder_id ?? null,
         items: plan.items.map((it) => ({
           exercise_id: it.exercise_id,
           name: it.name,
@@ -1259,7 +1365,14 @@ function openPlanEditor(plan, groupId = null) {
           rest_seconds: it.rest_seconds,
         })),
       }
-    : { id: null, name: "", notes: "", group_id: groupId, items: [] };
+    : {
+        id: null,
+        name: "",
+        notes: "",
+        group_id: groupId,
+        folder_id: groupId == null ? folderId : null,
+        items: [],
+      };
   openSheet(plan ? "Edit plan" : "New plan", planEditorHtml(), PLAN_SAVE);
 }
 
@@ -1272,7 +1385,11 @@ function syncDraftFromInputs() {
   if (nameEl) d.name = nameEl.value;
   if (notesEl) d.notes = notesEl.value;
   const groupEl = $("#draft-group");
-  if (groupEl) d.group_id = groupEl.value ? Number(groupEl.value) : null;
+  if (groupEl) {
+    const [kind, id] = [groupEl.value[0], Number(groupEl.value.slice(1))];
+    d.group_id = kind === "w" ? id : null;
+    d.folder_id = kind === "f" ? id : null;
+  }
   $$("#sheet-body input[data-idx]").forEach((input) => {
     const item = d.items[Number(input.dataset.idx)];
     if (!item) return;
@@ -1291,17 +1408,37 @@ function redrawDraft() {
   $("#sheet-body").innerHTML = planEditorHtml();
 }
 
-/** Name a new block or week, or rename one. `attrs` tells group-save which. */
-function openGroupSheet(title, name, attrs) {
+/** Name a new folder, block or week, or rename one. `attrs` tell the save
+ * action which; `extra` is any fields under the name. */
+function openGroupSheet(
+  title,
+  name,
+  attrs,
+  { action = "group-save", extra = "", placeholder = "" } = {},
+) {
   openSheet(
     title,
     `
     <div><label for="group-name">Name</label>
       <input id="group-name" value="${esc(name)}" maxlength="80"
-        enterkeyhint="done" data-enter="group-save"></div>`,
-    `<button class="btn good" data-action="group-save" ${attrs}>Save</button>`,
+        placeholder="${esc(placeholder)}"
+        enterkeyhint="done" data-enter="${action}"></div>${extra}`,
+    `<button class="btn good" data-action="${action}" ${attrs}>Save</button>`,
   );
   $("#group-name").select();
+}
+
+/** Which folder a block sits in; nothing to pick until a folder exists. */
+function folderSelectHtml(folderId) {
+  if (!state.folders.length) return "";
+  return `
+    <div><label for="group-folder">Folder</label>
+      <select id="group-folder"><option value="">No folder</option>${state.folders
+        .map(
+          (f) =>
+            `<option value="${f.id}"${f.id === folderId ? " selected" : ""}>${esc(f.name)}</option>`,
+        )
+        .join("")}</select></div>`;
 }
 
 // ---------------------------------------------------------- exercise picker
@@ -1547,9 +1684,10 @@ async function refresh() {
       renderTrain();
       renderStats(stats);
     } else if (state.view === "plans") {
-      [state.plans, state.groups] = await Promise.all([
+      [state.plans, state.groups, state.folders] = await Promise.all([
         api("/plans"),
         api("/groups"),
+        api("/folders"),
       ]);
       renderPlans();
     } else {
@@ -1758,12 +1896,61 @@ const actions = {
   },
 
   "new-plan"(el) {
-    openPlanEditor(null, el.dataset.group ? Number(el.dataset.group) : null);
+    openPlanEditor(
+      null,
+      el.dataset.group ? Number(el.dataset.group) : null,
+      el.dataset.folder ? Number(el.dataset.folder) : null,
+    );
   },
 
-  "new-block"() {
+  "new-folder"() {
+    openGroupSheet("New folder", "", "", {
+      action: "folder-save",
+      placeholder: "Nationals prep",
+    });
+  },
+
+  "rename-folder"(el) {
+    const folder = state.folders.find((f) => f.id === Number(el.dataset.id));
+    if (!folder) return;
+    openGroupSheet("Rename folder", folder.name, `data-id="${folder.id}"`, {
+      action: "folder-save",
+    });
+  },
+
+  async "folder-save"(el) {
+    const name = $("#group-name").value.trim();
+    if (!name) return toast("Give it a name");
+    if (el.dataset.id) {
+      await api(`/folders/${el.dataset.id}`, { method: "PUT", body: { name } });
+    } else {
+      const folder = await api("/folders", { method: "POST", body: { name } });
+      state.openGroups.add(`f${folder.id}`);
+      saveOpenGroups();
+    }
+    closeSheet();
+    refresh();
+  },
+
+  async "del-folder"(el) {
+    const folder = state.folders.find((f) => f.id === Number(el.dataset.id));
+    if (!folder) return;
+    if (
+      !confirm(
+        `Delete the folder ${folder.name}? Its blocks and plans are kept, outside any folder.`,
+      )
+    )
+      return;
+    await api(`/folders/${folder.id}`, { method: "DELETE" });
+    refresh();
+  },
+
+  "new-block"(el) {
     const count = state.groups.filter((g) => g.parent_id == null).length;
-    openGroupSheet("New block", `Block ${count + 1}`, "");
+    const folder = el.dataset.folder ? Number(el.dataset.folder) : null;
+    openGroupSheet("New block", `Block ${count + 1}`, "", {
+      extra: folderSelectHtml(folder),
+    });
   },
 
   "new-week"(el) {
@@ -1779,27 +1966,33 @@ const actions = {
   "rename-group"(el) {
     const group = state.groups.find((g) => g.id === Number(el.dataset.id));
     if (!group) return;
+    const isBlock = group.parent_id == null;
     openGroupSheet(
-      group.parent_id == null ? "Rename block" : "Rename week",
+      isBlock ? "Rename block" : "Rename week",
       group.name,
       `data-id="${group.id}"`,
+      { extra: isBlock ? folderSelectHtml(group.folder_id ?? null) : "" },
     );
   },
 
   async "group-save"(el) {
     const name = $("#group-name").value.trim();
     if (!name) return toast("Give it a name");
+    const folderEl = $("#group-folder");
+    const body = { name };
+    if (folderEl) body.folder_id = folderEl.value ? Number(folderEl.value) : null;
     if (el.dataset.id) {
-      await api(`/groups/${el.dataset.id}`, { method: "PUT", body: { name } });
+      await api(`/groups/${el.dataset.id}`, { method: "PUT", body });
     } else {
       const parentId = el.dataset.parent ? Number(el.dataset.parent) : null;
       const group = await api("/groups", {
         method: "POST",
-        body: { name, parent_id: parentId },
+        body: { ...body, parent_id: parentId },
       });
       // Show what was just made.
       state.openGroups.add(group.id);
       if (parentId) state.openGroups.add(parentId);
+      if (group.folder_id) state.openGroups.add(`f${group.folder_id}`);
       saveOpenGroups();
     }
     closeSheet();
@@ -1868,6 +2061,7 @@ const actions = {
       name: d.name,
       notes: d.notes,
       group_id: d.group_id,
+      folder_id: d.folder_id,
       items: d.items.map((it) => ({
         exercise_id: it.exercise_id,
         target_sets: it.target_sets,
@@ -1973,17 +2167,42 @@ const actions = {
     $("#import-file").click();
   },
 
-  async "export-plans"() {
-    // No awaits before share(): browsers only allow it straight after a tap.
+  "export-plans"() {
     const data = dataCache;
     if (!data?.plans.length) return toast("No plans to export");
-    ensureUids(data); // so the next import can tell these plans apart
-    const stamp = new Date().toISOString();
-    const name = `gym-planner-plans-${stamp.slice(0, 10)}`;
-    const json = JSON.stringify(plansToExport(data, stamp), null, 2);
-    if (!(await shareJson(name, json))) return;
-    await writeLocalData(data);
-    toast("Plans exported");
+    ensureGroups(data);
+    const folders = data.folders
+      .map((folder) => ({
+        folder,
+        count: data.plans.filter((p) => planFolderId(data, p) === folder.id)
+          .length,
+      }))
+      .filter((f) => f.count)
+      .sort((a, b) => byName(a.folder, b.folder));
+    if (!folders.length) return exportPlansFile(data, null);
+    // A tap on the sheet starts the share, which browsers only allow right
+    // after a tap.
+    openSheet(
+      "Export plans",
+      '<p class="muted">Export every plan, or just one folder.</p>',
+      `<div class="stack tight">
+        <button class="btn good" data-action="export-plans-go" data-folder="">All plans (${data.plans.length})</button>
+        ${folders
+          .map(
+            ({ folder, count }) =>
+              `<button class="btn ghost" data-action="export-plans-go" data-folder="${folder.id}">${esc(folder.name)} (${count})</button>`,
+          )
+          .join("")}
+      </div>`,
+    );
+  },
+
+  async "export-plans-go"(el) {
+    const data = dataCache;
+    if (!data) return closeSheet();
+    const folder = el.dataset.folder ? Number(el.dataset.folder) : null;
+    closeSheet();
+    await exportPlansFile(data, folder);
   },
 
   "import-plans"() {
@@ -1999,7 +2218,7 @@ const actions = {
     if (
       count &&
       !confirm(
-        `Delete all ${plural(count, "plan")} and blocks on this phone and use the file's list instead? Logged workouts are kept.`,
+        `Delete all ${plural(count, "plan")}, folders and blocks on this phone and use the file's list instead? Logged workouts are kept.`,
       )
     )
       return;
@@ -2010,6 +2229,26 @@ const actions = {
     closeSheet();
   },
 };
+
+/** Share a plans file: every plan, or with `folderId` one folder's. No awaits
+ * before share(): browsers only allow it straight after a tap. */
+async function exportPlansFile(data, folderId) {
+  ensureUids(data); // so the next import can tell these plans apart
+  const folder = data.folders.find((f) => f.id === folderId);
+  const stamp = new Date().toISOString();
+  const slug = folder
+    ? folder.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+    : "";
+  const name = `gym-planner-plans-${slug ? `${slug}-` : ""}${stamp.slice(0, 10)}`;
+  const json = JSON.stringify(
+    plansToExport(data, stamp, folder ? folder.id : null),
+    null,
+    2,
+  );
+  if (!(await shareJson(name, json))) return;
+  await writeLocalData(data);
+  toast(folder ? `${folder.name} exported` : "Plans exported");
+}
 
 /** Apply the plans file waiting in state.pendingPlans. */
 async function finishPlansImport(mode) {
@@ -2083,7 +2322,7 @@ async function shareJson(name, json) {
   return true;
 }
 
-/** A random id that stays with a plan, block or week across phones, so an
+/** A random id that stays with a plan, folder, block or week across phones, so an
  * import can tell what it already has. */
 function newUid() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
@@ -2093,34 +2332,51 @@ function newUid() {
   });
 }
 
-/** Plans and groups made before uids get one the first time they're needed. */
+/** Plans, folders and groups made before uids get one the first time they're
+ * needed. */
 function ensureUids(data) {
   ensureGroups(data);
-  [...data.plans, ...data.groups].forEach((item) => {
+  [...data.plans, ...data.groups, ...data.folders].forEach((item) => {
     if (!item.uid) item.uid = newUid();
   });
 }
 
 /** Plans with exercises referenced by name, since ids differ between phones.
  * A plan in a week carries its place as `group: [block name, week name]`, and
- * `group_uids` the same pair by uid. */
-function plansToExport(data, stamp) {
+ * `group_uids` the same pair by uid. A plan in a folder (directly, or through
+ * its block) carries `folder` and `folder_uid`.
+ *
+ * With `onlyFolder` (a folder id) just that folder's plans go in the file. */
+function plansToExport(data, stamp, onlyFolder = null) {
   const groups = Array.isArray(data.groups) ? data.groups : [];
+  const folders = Array.isArray(data.folders) ? data.folders : [];
+  const lookup = { groups, folders };
   const groupPath = (id) => {
     const week = groups.find((g) => g.id === id && g.parent_id != null);
     const block = week && groups.find((g) => g.id === week.parent_id);
     return block ? [block, week] : null;
   };
+  const folderOf = (plan) =>
+    folders.find((f) => f.id === planFolderId(lookup, plan)) || null;
+  const only = onlyFolder == null ? null : folders.find((f) => f.id === onlyFolder);
+  const plans =
+    onlyFolder == null
+      ? data.plans
+      : data.plans.filter((plan) => folderOf(plan)?.id === onlyFolder);
   return {
     kind: "gym-planner-plans",
     version: 1,
     exported_at: stamp,
-    plans: data.plans.map((plan) => {
+    ...(only ? { folder: { uid: only.uid || null, name: only.name } } : {}),
+    plans: plans.map((plan) => {
       const path = groupPath(plan.group_id);
+      const folder = folderOf(plan);
       return {
         uid: plan.uid || null,
         name: plan.name,
         notes: plan.notes || "",
+        folder: folder ? folder.name : null,
+        folder_uid: folder ? folder.uid || null : null,
         group: path && path.map((g) => g.name),
         group_uids: path && path.map((g) => g.uid || null),
         items: plan.items.map((item) => {
@@ -2159,9 +2415,11 @@ function importedPlansList(imported) {
  *
  * mode "add" keeps every plan on the phone and adds only the plans it doesn't
  * have yet: a plan is already here when its uid matches, or (for files from
- * before uids) when its week already has a plan of that name. Blocks and weeks
- * are matched the same way, by uid, then by name.
- * mode "replace" deletes every plan, block and week first and takes the file's
+ * before uids) when its week already has a plan of that name. Folders, blocks
+ * and weeks are matched the same way, by uid, then by name. A block or folder
+ * already on the phone stays where it is here, even if the file has it
+ * somewhere else. Files from before folders put everything outside them.
+ * mode "replace" deletes every plan, folder, block and week first and takes the file's
  * list as it is. Logged workouts are kept either way.
  *
  * Exercises are matched by name and created when missing.
@@ -2172,10 +2430,13 @@ function importPlans(data, imported, mode = "add") {
   if (mode === "replace") {
     data.plans = [];
     data.groups = [];
+    data.folders = [];
   }
   const existingPlans = [...data.plans];
   const uidsInUse = () =>
-    new Set([...data.plans, ...data.groups].map((item) => item.uid));
+    new Set(
+      [...data.plans, ...data.groups, ...data.folders].map((item) => item.uid),
+    );
   /** The imported uid when it's usable and free here, else a new one. */
   const takeUid = (uid) =>
     typeof uid === "string" && uid && !uidsInUse().has(uid) ? uid : newUid();
@@ -2197,8 +2458,26 @@ function importPlans(data, imported, mode = "add") {
     data.exercises.push(created);
     return created.id;
   };
-  /** Find or create the block and week a plan was exported from. */
-  const importedWeekId = (path, uids) => {
+  /** Find or create the folder a plan was exported from. */
+  const importedFolderId = (folderName, uid) => {
+    const name = String(folderName || "").trim();
+    if (!name) return null;
+    uid = typeof uid === "string" && uid ? uid : null;
+    let folder =
+      (uid && data.folders.find((f) => f.uid === uid)) ||
+      data.folders.find((f) => f.name.toLowerCase() === name.toLowerCase());
+    if (folder) {
+      // Matched by name: take the file's uid so a later rename still matches.
+      if (uid && folder.uid !== uid && !uidsInUse().has(uid)) folder.uid = uid;
+    } else {
+      folder = { id: data.nextIds.folder++, uid: takeUid(uid), name };
+      data.folders.push(folder);
+    }
+    return folder.id;
+  };
+  /** Find or create the block and week a plan was exported from. A new block
+   * goes in `folderId`; a block of the same name only matches in that folder. */
+  const importedWeekId = (path, uids, folderId) => {
     if (!Array.isArray(path) || path.length !== 2) return null;
     let parentId = null;
     for (let i = 0; i < 2; i++) {
@@ -2210,7 +2489,11 @@ function importPlans(data, imported, mode = "add") {
       );
       let group =
         (uid && atLevel.find((g) => g.uid === uid)) ||
-        atLevel.find((g) => g.name.toLowerCase() === name.toLowerCase());
+        atLevel.find(
+          (g) =>
+            g.name.toLowerCase() === name.toLowerCase() &&
+            (i > 0 || (g.folder_id ?? null) === folderId),
+        );
       if (group) {
         // Matched by name: take the file's uid so a later rename still matches.
         if (uid && group.uid !== uid && !uidsInUse().has(uid)) group.uid = uid;
@@ -2221,17 +2504,22 @@ function importPlans(data, imported, mode = "add") {
           name,
           parent_id: parentId,
         };
+        if (i === 0) group.folder_id = folderId;
         data.groups.push(group);
       }
       parentId = group.id;
     }
     return parentId;
   };
+  /** Plans side by side: the same week, or (outside weeks) the same folder. */
+  const sameSpot = (p, groupId, folderId) =>
+    (p.group_id ?? null) === groupId &&
+    (groupId != null || (p.folder_id ?? null) === folderId);
   // Names only need to be unique within a week: every week can have "Day 1".
-  const freeName = (name, groupId) => {
+  const freeName = (name, groupId, folderId) => {
     const taken = new Set(
       data.plans
-        .filter((p) => (p.group_id ?? null) === groupId)
+        .filter((p) => sameSpot(p, groupId, folderId))
         .map((p) => p.name.toLowerCase()),
     );
     if (!taken.has(name.toLowerCase())) return name;
@@ -2245,10 +2533,13 @@ function importPlans(data, imported, mode = "add") {
     const name = String(plan.name || "").trim() || "Imported plan";
     const uid = typeof plan.uid === "string" && plan.uid ? plan.uid : null;
     if (uid && existingPlans.some((p) => p.uid === uid)) return;
-    const groupId = importedWeekId(plan.group, plan.group_uids);
+    const folderId = importedFolderId(plan.folder, plan.folder_uid);
+    const groupId = importedWeekId(plan.group, plan.group_uids, folderId);
+    // A plan in a week is in its block's folder; only loose plans keep one.
+    const ownFolder = groupId == null ? folderId : null;
     const sameName = existingPlans.find(
       (p) =>
-        (p.group_id ?? null) === groupId &&
+        sameSpot(p, groupId, ownFolder) &&
         p.name.toLowerCase() === name.toLowerCase(),
     );
     if (sameName) {
@@ -2270,9 +2561,10 @@ function importPlans(data, imported, mode = "add") {
     data.plans.push({
       id: data.nextIds.plan++,
       uid: takeUid(uid),
-      name: freeName(name, groupId),
+      name: freeName(name, groupId, ownFolder),
       notes: plan.notes || "",
       group_id: groupId,
+      folder_id: ownFolder,
       created_at: nowTs(),
       items,
     });
@@ -2291,6 +2583,7 @@ function backupToData(imported) {
     throw new Error("That file is not a Gym Planner backup");
   }
   const groups = Array.isArray(imported.groups) ? imported.groups : [];
+  const folders = Array.isArray(imported.folders) ? imported.folders : [];
   return {
     version: 1,
     // Derived rather than trusted, so new records can never reuse an id.
@@ -2298,6 +2591,7 @@ function backupToData(imported) {
       exercise: maxId(imported.exercises) + 1,
       plan: maxId(imported.plans) + 1,
       group: maxId(groups) + 1,
+      folder: maxId(folders) + 1,
       session: maxId(imported.sessions) + 1,
       set:
         maxId(imported.sessions.flatMap((session) => session.sets || [])) + 1,
@@ -2305,6 +2599,7 @@ function backupToData(imported) {
     exercises: imported.exercises,
     plans: imported.plans.map((plan) => ({ ...plan, items: plan.items || [] })),
     groups,
+    folders,
     sessions: imported.sessions.map((session) => ({
       ...session,
       sets: session.sets || [],
@@ -2327,7 +2622,8 @@ document.addEventListener("keydown", (ev) => {
 document.addEventListener(
   "toggle",
   (ev) => {
-    const id = Number(ev.target.dataset?.group);
+    const folder = Number(ev.target.dataset?.folder);
+    const id = folder ? `f${folder}` : Number(ev.target.dataset?.group);
     if (!id) return;
     if (ev.target.open) state.openGroups.add(id);
     else state.openGroups.delete(id);
@@ -2398,12 +2694,12 @@ $("#import-plans-file").addEventListener("change", async (ev) => {
     );
     openSheet(
       "Import plans",
-      `<p>This file has ${plural(added + skipped, "plan")}.
+      `<p>This file has ${parsed.folder?.name ? `the folder ${esc(String(parsed.folder.name))} with ` : ""}${plural(added + skipped, "plan")}.
         ${added ? `${added} ${added === 1 ? "is" : "are"} new.` : "You already have all of them."}</p>
       <p class="muted"><strong>Add new plans</strong> keeps your plans and adds
-        only the ones you don't have, into their blocks and weeks.
-        <strong>Overwrite all plans</strong> deletes your plans, blocks and
-        weeks and uses the file's list instead. Logged workouts are kept.</p>`,
+        only the ones you don't have, into their folders, blocks and weeks.
+        <strong>Overwrite all plans</strong> deletes your plans, folders, blocks
+        and weeks and uses the file's list instead. Logged workouts are kept.</p>`,
       `<div class="stack tight">
         <button class="btn good" data-action="import-plans-add">Add new plans</button>
         <button class="btn danger" data-action="import-plans-replace">Overwrite all plans</button>

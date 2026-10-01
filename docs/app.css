@@ -179,7 +179,8 @@ body {
   padding: 14px;
 }
 
-/* Plan groups: a block holds weeks, a week holds plan cards. */
+/* Plan groups: a folder holds blocks and plans, a block holds weeks, a week
+ * holds plan cards. */
 .group {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -207,6 +208,16 @@ body {
 }
 .group .group .card {
   background: var(--surface);
+}
+/* A folder holds blocks and plans, so it sits one level further out. */
+.group.folder {
+  border-left: 3px solid var(--accent-dim);
+}
+.group.folder .group .group {
+  background: var(--surface);
+}
+.group.folder .group .group .card {
+  background: var(--surface-2);
 }
 .group-body {
   padding: 0 12px 12px;
