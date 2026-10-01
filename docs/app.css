@@ -662,3 +662,28 @@ body.dragging * {
     transform: translateY(100%);
   }
 }
+
+/* Browser tab, not installed: the install button is the only thing on screen. */
+body.gated .topbar,
+body.gated main,
+body.gated .tabbar {
+  display: none;
+}
+.install-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+  background: var(--bg);
+}
+.install-gate .btn {
+  width: auto;
+  min-width: 200px;
+  margin-top: 8px;
+}

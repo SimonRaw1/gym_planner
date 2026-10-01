@@ -876,11 +876,14 @@ document.addEventListener("visibilitychange", syncWakeLock);
 
 // ----------------------------------------------------------------- install
 
-/* Browsers keep "install" in a menu, so the Train page offers it. Chrome lets
- * the page open its install dialog; iPhone has no such hook, so there the card
- * explains the steps. It matters most on iPhone: Safari may clear an
- * uninstalled site's storage, workouts included, after 7 days unopened. */
+/* The app only runs once installed. In a browser tab the gate below is the
+ * whole page: a single Install button. Chrome lets the page open its install
+ * dialog; iPhone has no such hook, so there the button explains the steps. It
+ * matters most on iPhone: Safari may clear an uninstalled site's storage,
+ * workouts included, after 7 days unopened. localhost skips the gate so the
+ * app can be tested on a desktop. */
 let installPrompt = null; // Chrome's beforeinstallprompt event, kept for the button
+let justInstalled = false;
 
 const isInstalled = () =>
   matchMedia("(display-mode: standalone)").matches ||
@@ -890,37 +893,33 @@ const isIos = () =>
   /iphone|ipad|ipod/i.test(navigator.userAgent) ||
   (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); // iPadOS
 
+const isGated = !isInstalled() && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+
 window.addEventListener("beforeinstallprompt", (ev) => {
   ev.preventDefault();
   installPrompt = ev;
-  renderInstallCard();
+  renderInstallGate();
 });
 
 window.addEventListener("appinstalled", () => {
   installPrompt = null;
-  renderInstallCard();
+  justInstalled = true;
+  renderInstallGate();
 });
 
-function renderInstallCard() {
-  const card = $("#install-card");
-  const show =
-    !isInstalled() &&
-    !loadPref("install-dismissed", false) &&
-    Boolean(installPrompt || isIos());
-  card.hidden = !show;
-  if (!show) return;
-  card.innerHTML = `
-    <h2>Install the app</h2>
-    <p class="muted">Put Gym Planner on your home screen. It opens full screen
-      and works with no connection${isIos() ? ", and Safari won't clear your workouts" : ""}.</p>
-    <div class="row" style="margin-top:14px">
-      <button class="btn ghost" data-action="install-dismiss">Not now</button>
-      ${
-        installPrompt
-          ? '<button class="btn" data-action="install-app">Install</button>'
-          : '<button class="btn" data-action="install-help">How to install</button>'
-      }
-    </div>`;
+function renderInstallGate() {
+  document.body.classList.toggle("gated", isGated);
+  const gate = $("#install-gate");
+  gate.hidden = !isGated;
+  if (!isGated) return;
+  gate.innerHTML = justInstalled
+    ? `<h1>Gym Planner</h1>
+       <p class="muted">Installed. Open <strong>Gym</strong> from your home
+         screen to start.</p>`
+    : `<h1>Gym Planner</h1>
+       <p class="muted">Install the app to use it. It opens full screen and
+         works with no connection${isIos() ? ", and Safari won't clear your workouts" : ""}.</p>
+       <button class="btn" data-action="${installPrompt ? "install-app" : "install-help"}">Install app</button>`;
 }
 
 const SHARE_ICON = `<svg class="inline-icon" viewBox="0 0 24 24" fill="none"
@@ -955,7 +954,6 @@ function renderTrain() {
   if (state.inSession) renderActiveSession();
   else {
     renderCurrentSession();
-    renderInstallCard();
   }
 }
 
@@ -1566,10 +1564,19 @@ const actions = {
     const prompt = installPrompt;
     installPrompt = null; // Chrome's event only opens the dialog once
     if (prompt) await prompt.prompt();
-    renderInstallCard();
+    renderInstallGate();
   },
 
   "install-help"() {
+    if (!isIos()) {
+      openSheet(
+        "Install the app",
+        `<p>Open your browser's menu and choose <strong>Install app</strong>
+          or <strong>Add to Home screen</strong>, then open <strong>Gym</strong>
+          from your home screen.</p>`,
+      );
+      return;
+    }
     openSheet(
       "Install on iPhone",
       `
@@ -1585,11 +1592,6 @@ const actions = {
           phone only. Once the app is on the home screen, Safari won't clear
           them. Use Export data on the History tab now and then as a backup.</p>`,
     );
-  },
-
-  "install-dismiss"() {
-    savePref("install-dismissed", true);
-    renderInstallCard();
   },
 
   "set-unit"(el) {
@@ -2249,6 +2251,13 @@ setInterval(() => {
 }, 30000);
 
 (async function boot() {
+  renderInstallGate();
+  if (isGated) {
+    // Nothing to run until installed, but the service worker is what makes the
+    // browser offer the install dialog.
+    navigator.serviceWorker?.register("sw.js").catch(() => {});
+    return;
+  }
   try {
     state.exercises = await api("/exercises");
   } catch (err) {
