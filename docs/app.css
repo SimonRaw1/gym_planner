@@ -25,7 +25,9 @@
 /* -------------------------------------------------------------- themes
  * Colour palettes borrowed from DaisyUI's themes, picked in Settings and
  * stored in the localStorage pref `theme`. A theme sets the core colours;
- * the rule below derives the in-between shades from them. */
+ * the rule below derives the in-between shades from them. The selectors
+ * aren't tied to :root so the theme swatches in Settings can preview a
+ * palette by carrying data-theme themselves. */
 [data-theme]:not([data-theme="default"]) {
   --line: color-mix(in srgb, var(--text) 16%, var(--surface));
   --muted: color-mix(in srgb, var(--text) 62%, var(--bg));
@@ -947,3 +949,64 @@ body.gated .tabbar {
   margin-top: 8px;
 }
 
+
+/* Theme picker in Settings: a button showing the current theme opens a grid
+ * of swatches, each carrying its own data-theme so it paints in that palette. */
+.theme-toggle {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.theme-toggle[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.theme-swatch {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.theme-swatch[aria-pressed="true"] {
+  border-color: var(--accent);
+}
+.theme-dots {
+  display: flex;
+  gap: 4px;
+}
+.theme-dots i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+.theme-toggle .theme-dots {
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: var(--bg);
+}

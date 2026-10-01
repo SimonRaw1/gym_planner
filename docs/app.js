@@ -1884,6 +1884,21 @@ function renderUnitButtons() {
   });
 }
 
+function themeDots() {
+  return `<span class="theme-dots" aria-hidden="true"><i style="background:var(--accent)"></i><i
+    style="background:var(--surface-2)"></i><i style="background:var(--good)"></i></span>`;
+}
+
+/* The Theme row shows the current palette; tapping it opens the swatches. */
+function renderThemePicker() {
+  const current = document.documentElement.dataset.theme;
+  const label = THEMES.find(([id]) => id === current)[1];
+  $("#theme-toggle").innerHTML = `${themeDots()}<span>${label}</span><span aria-hidden="true">&#9662;</span>`;
+  $$('[data-action="set-theme"]').forEach((btn) => {
+    btn.setAttribute("aria-pressed", String(btn.dataset.value === current));
+  });
+}
+
 function renderHistory() {
   renderHistoryFilter();
   if (state.historyExercise !== null)
@@ -2114,9 +2129,17 @@ const actions = {
         </div>
         <div class="spread" style="margin-top:14px">
           <span>Theme</span>
-          <select id="theme-select" aria-label="Theme" style="width:auto">
-            ${THEMES.map(([id, label]) => `<option value="${id}">${label}</option>`).join("")}
-          </select>
+          <button id="theme-toggle" class="theme-toggle" data-action="toggle-themes"
+            aria-expanded="false" aria-controls="theme-grid"></button>
+        </div>
+        <div id="theme-grid" class="theme-grid" hidden>
+          ${THEMES.map(
+            ([id, label]) => `
+            <button class="theme-swatch" data-theme="${id}" data-action="set-theme"
+              data-value="${id}" aria-pressed="false">
+              <span>${label}</span>${themeDots()}
+            </button>`,
+          ).join("")}
         </div>
         <h3 style="margin-top:20px">Data backup</h3>
         <p class="muted">Your workouts are kept on this phone only. Export now
@@ -2128,12 +2151,21 @@ const actions = {
         </div>`,
     );
     renderUnitButtons();
-    const themeSelect = $("#theme-select");
-    themeSelect.value = document.documentElement.dataset.theme;
-    themeSelect.addEventListener("change", () => {
-      savePref("theme", applyTheme(themeSelect.value));
-    });
+    renderThemePicker();
     renderLastBackup();
+  },
+
+  "toggle-themes"() {
+    const grid = $("#theme-grid");
+    grid.hidden = !grid.hidden;
+    $("#theme-toggle").setAttribute("aria-expanded", String(!grid.hidden));
+  },
+
+  "set-theme"(el) {
+    savePref("theme", applyTheme(el.dataset.value));
+    $("#theme-grid").hidden = true;
+    $("#theme-toggle").setAttribute("aria-expanded", "false");
+    renderThemePicker();
   },
 
   "set-unit"(el) {
