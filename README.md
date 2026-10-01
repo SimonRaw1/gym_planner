@@ -12,17 +12,20 @@ Anyone can use it. Open this link on your phone:
 
 <https://simonraw1.github.io/gym_planner/>
 
-The Train page shows an **Install the app** card:
+In a browser tab the app shows only an **Install app** button; it runs once it
+is on the home screen.
 
-- **Android (Chrome):** tap **Install**. The app then shows up on the home screen and in the app drawer.
-- **iPhone:** tap **How to install** for the steps: **Share** &rarr; **Add to
-  Home Screen** &rarr; **Add**. Please do install it on iPhone. Safari may clear
-  the storage of a site that isn't on the home screen and hasn't been opened for
-  a week, which would erase your workouts.
+- **Android (Chrome):** tap **Install app** and confirm. The app then shows up
+  on the home screen and in the app drawer; open it from there.
+- **iPhone:** tap **Install app** for the steps: **Share** &rarr; **Add to Home
+  Screen** &rarr; **Add**, then open **Gym** from the home screen. Installing
+  also protects your data: Safari may clear the storage of a site that isn't on
+  the home screen and hasn't been opened for a week, which would erase your
+  workouts.
 
-If you closed the card, use the browser menu instead (&#8942; &rarr; **Install
-app** in Chrome, **Share** &rarr; **Add to Home Screen** in Safari). After that
-the app opens full screen and runs without any connection.
+If the button only shows instructions, use the browser menu instead (&#8942;
+&rarr; **Install app** or **Add to Home screen** in Chrome). After that the app
+opens full screen and runs without any connection.
 
 There are no accounts and nothing is sent anywhere. Your workouts are stored
 only on your phone, so each person's data is separate.
@@ -31,12 +34,15 @@ only on your phone, so each person's data is separate.
 
 Workouts are stored only in the phone's browser storage (IndexedDB). If the app
 is uninstalled or the browser data cleared, they are gone, so back up now and
-then from the **History** tab:
+then from **Settings** (the gear at the top right) under **Data backup**:
 
 - **Export data** opens the share sheet with a backup file (JSON saved as .txt). Pick **Drive**
   (Android) or **Save to Files &rarr; Google Drive** (iPhone).
 - **Import data** opens the file picker. Choose the backup from Google Drive.
   Importing replaces everything currently on the phone.
+
+Settings also shows when you last exported, and flags it once that is more than
+14 days ago (or never).
 
 ## Using it
 
@@ -65,8 +71,9 @@ then from the **History** tab:
 - **History** — past sessions with set count and total volume; tap one to see
   every set. Pick an exercise in the filter to see every time you did it, newest
   first; tick **Hide warm-up sets** to see working sets only.
-- **Settings** (bottom of History) — **Weight unit** switches between kg and
-  lb. Weights are always stored in kg, so a backup restores correctly whichever
+- **Settings** (the gear at the top right, on every tab) — **Weight unit**
+  switches between kg and lb, and **Data backup** holds Export and Import (see
+  above). Weights are always stored in kg, so a backup restores correctly whichever
   unit either phone uses.
 
 ## Layout
@@ -78,6 +85,7 @@ docs/app.css             phone-first styling
 docs/sw.js               service worker (caches the app for offline use)
 docs/manifest.webmanifest
 docs/icons/              PWA icons
+tests/                   backup round-trip tests (run with node --test)
 tools/make_icons.py      regenerates the icons from tools/logo.png (needs Pillow)
 ```
 
@@ -89,7 +97,14 @@ Test on the PC (localhost counts as secure, so offline mode works here too):
 python -m http.server 8000 -d docs
 ```
 
-then open <http://localhost:8000>.
+then open <http://localhost:8000>. On localhost the app runs in the tab without
+the install step.
+
+Run the tests from the repo root with Node 20 or later:
+
+```powershell
+node --test
+```
 
 When you change any file in `docs/`, bump `CACHE` in [docs/sw.js](docs/sw.js)
 and push. The phone picks up the new version the next time the app is opened

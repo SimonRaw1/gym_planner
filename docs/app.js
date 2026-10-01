@@ -1611,7 +1611,7 @@ const actions = {
         </ol>
         <p class="muted" style="margin-top:14px">Your workouts are kept on this
           phone only. Once the app is on the home screen, Safari won't clear
-          them. Use Export data on the History tab now and then as a backup.</p>`,
+          them. Use Export data in Settings (the gear) now and then as a backup.</p>`,
     );
   },
 
