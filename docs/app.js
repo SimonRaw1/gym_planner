@@ -42,6 +42,40 @@ function savePref(key, value) {
   }
 }
 
+/* Colour themes, from DaisyUI's palettes; the CSS for each lives in app.css
+ * under [data-theme]. "default" is the app's own look. */
+const THEMES = [
+  ["default", "Gym"],
+  ["dark", "Dark"],
+  ["night", "Night"],
+  ["dracula", "Dracula"],
+  ["synthwave", "Synthwave"],
+  ["forest", "Forest"],
+  ["coffee", "Coffee"],
+  ["sunset", "Sunset"],
+  ["light", "Light"],
+  ["cupcake", "Cupcake"],
+  ["emerald", "Emerald"],
+  ["nord", "Nord"],
+];
+
+function applyTheme(name) {
+  const theme = THEMES.some(([id]) => id === name) ? name : "default";
+  document.documentElement.dataset.theme = theme;
+  // Match the phone's status bar to the page.
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta)
+    meta.content =
+      theme === "default"
+        ? "#12151c"
+        : getComputedStyle(document.documentElement)
+            .getPropertyValue("--bg")
+            .trim();
+  return theme;
+}
+
+applyTheme(loadPref("theme", "default"));
+
 function saveOpenGroups() {
   savePref("open-groups", [...state.openGroups]);
 }
@@ -1850,6 +1884,13 @@ function renderUnitButtons() {
   });
 }
 
+function renderThemeButtons() {
+  const current = document.documentElement.dataset.theme;
+  $$('[data-action="set-theme"]').forEach((btn) => {
+    btn.setAttribute("aria-pressed", String(btn.dataset.value === current));
+  });
+}
+
 function renderHistory() {
   renderHistoryFilter();
   if (state.historyExercise !== null)
@@ -2078,6 +2119,18 @@ const actions = {
             <button class="btn small ghost" data-action="set-unit" data-unit="lb">lb</button>
           </div>
         </div>
+        <h3 style="margin-top:20px">Theme</h3>
+        <div class="theme-grid">
+          ${THEMES.map(
+            ([id, label]) => `
+            <button class="theme-swatch" data-theme="${id}" data-action="set-theme"
+              data-value="${id}" aria-pressed="false">
+              <span>${label}</span>
+              <span class="theme-dots" aria-hidden="true"><i style="background:var(--accent)"></i><i
+                style="background:var(--surface-2)"></i><i style="background:var(--good)"></i></span>
+            </button>`,
+          ).join("")}
+        </div>
         <h3 style="margin-top:20px">Data backup</h3>
         <p class="muted">Your workouts are kept on this phone only. Export now
           and then to keep a copy; Import replaces everything here.</p>
@@ -2088,7 +2141,13 @@ const actions = {
         </div>`,
     );
     renderUnitButtons();
+    renderThemeButtons();
     renderLastBackup();
+  },
+
+  "set-theme"(el) {
+    savePref("theme", applyTheme(el.dataset.value));
+    renderThemeButtons();
   },
 
   "set-unit"(el) {
