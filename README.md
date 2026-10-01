@@ -41,6 +41,9 @@ then from **Settings** (the gear at the top right) under **Data backup**:
 - **Import data** opens the file picker. Choose the backup from Google Drive.
   Importing replaces everything currently on the phone.
 
+Settings also shows when you last exported, and flags it once that is more than
+14 days ago (or never).
+
 ## Using it
 
 - **Train** — start from a plan or go freestyle. Each exercise shows its target,
@@ -82,6 +85,7 @@ docs/app.css             phone-first styling
 docs/sw.js               service worker (caches the app for offline use)
 docs/manifest.webmanifest
 docs/icons/              PWA icons
+tests/                   backup round-trip tests (run with node --test)
 tools/make_icons.py      regenerates the icons from tools/logo.png (needs Pillow)
 ```
 
@@ -95,6 +99,12 @@ python -m http.server 8000 -d docs
 
 then open <http://localhost:8000>. On localhost the app runs in the tab without
 the install step.
+
+Run the tests from the repo root with Node 20 or later:
+
+```powershell
+node --test
+```
 
 When you change any file in `docs/`, bump `CACHE` in [docs/sw.js](docs/sw.js)
 and push. The phone picks up the new version the next time the app is opened
