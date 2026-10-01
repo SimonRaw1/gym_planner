@@ -246,3 +246,178 @@ test("files without plans are refused", () => {
   app.context.bad = { hello: 1 };
   assert.throws(() => app.run("importPlans({}, bad)"), /no Gym Planner plans/);
 });
+
+// ------------------------------------------------------------------ folders
+
+const put = (app, path, body) =>
+  app.run(`api(${JSON.stringify(path)}, { method: "PUT", body: ${JSON.stringify(body)} })`);
+
+/** Press Export plans, pick a folder (or All plans) on the sheet, and read
+ * back the shared file. */
+async function exportFolder(app, folderId = null) {
+  app.context.el = { dataset: { folder: folderId == null ? "" : String(folderId) } };
+  await app.run('actions["export-plans-go"](el)');
+  return JSON.parse(await app.shared.at(-1).text());
+}
+
+/** "Folder: Block / Week / Plan" for every plan, sorted. */
+async function folderLayout(app) {
+  const data = plain(await app.run("localData()"));
+  const folderName = (id) => data.folders.find((f) => f.id === id)?.name;
+  return data.plans
+    .map((p) => {
+      const week = data.groups.find((g) => g.id === p.group_id);
+      const block = week && data.groups.find((g) => g.id === week.parent_id);
+      const where = block ? `${block.name} / ${week.name} / ${p.name}` : p.name;
+      const folder = folderName(block ? block.folder_id : p.folder_id);
+      return folder ? `${folder}: ${where}` : where;
+    })
+    .sort();
+}
+
+/** Phone with a "Nationals Prep" folder (a block and a loose plan in it), and
+ * a block and a plan outside any folder. */
+async function phoneWithFolder() {
+  const app = await phone();
+  const folder = plain(await post(app, "/folders", { name: "Nationals Prep" }));
+  const block = plain(await post(app, "/groups", { name: "Peak", folder_id: folder.id }));
+  const week = plain(await post(app, "/groups", { name: "Week 1", parent_id: block.id }));
+  await addPlan(app, "Heavy singles", week.id);
+  await post(app, "/plans", { name: "Openers", folder_id: folder.id, items: [] });
+  await addBlock(app, "Off season", { "Week 1": ["Volume"] });
+  await addPlan(app, "Mobility");
+  return { app, folder };
+}
+
+test("folders hold blocks and plans, and are optional", async () => {
+  const { app } = await phoneWithFolder();
+  assert.deepEqual(await folderLayout(app), [
+    "Mobility",
+    "Nationals Prep: Openers",
+    "Nationals Prep: Peak / Week 1 / Heavy singles",
+    "Off season / Week 1 / Volume",
+  ]);
+  const data = plain(await app.run("localData()"));
+  assert.match(data.folders[0].uid, /^[0-9a-f-]{36}$/);
+  const week = data.groups.find((g) => g.parent_id != null);
+  assert.equal(week.folder_id, undefined, "weeks go where their block goes");
+});
+
+test("a plan put in a week leaves its folder; moving a block moves its plans", async () => {
+  const { app, folder } = await phoneWithFolder();
+  const data = plain(await app.run("localData()"));
+  const openers = data.plans.find((p) => p.name === "Openers");
+  const offWeek = data.groups.find(
+    (g) => g.parent_id === data.groups.find((b) => b.name === "Off season").id,
+  );
+  await put(app, `/plans/${openers.id}`, {
+    name: "Openers",
+    group_id: offWeek.id,
+    folder_id: folder.id,
+    items: [],
+  });
+  const offSeason = data.groups.find((b) => b.name === "Off season");
+  await put(app, `/groups/${offSeason.id}`, { name: "Off season", folder_id: folder.id });
+  assert.deepEqual(await folderLayout(app), [
+    "Mobility",
+    "Nationals Prep: Off season / Week 1 / Openers",
+    "Nationals Prep: Off season / Week 1 / Volume",
+    "Nationals Prep: Peak / Week 1 / Heavy singles",
+  ]);
+  const after = plain(await app.run("localData()"));
+  assert.equal(after.plans.find((p) => p.name === "Openers").folder_id, null);
+});
+
+test("deleting a folder keeps its blocks and plans; deleting a block keeps its plans in the folder", async () => {
+  const { app, folder } = await phoneWithFolder();
+  const data = plain(await app.run("localData()"));
+  const peak = data.groups.find((g) => g.name === "Peak");
+  await app.run(`api("/groups/${peak.id}", { method: "DELETE" })`);
+  assert.ok(
+    (await folderLayout(app)).includes("Nationals Prep: Heavy singles"),
+    "a plan from a deleted block stays in the folder",
+  );
+  await app.run(`api("/folders/${folder.id}", { method: "DELETE" })`);
+  assert.deepEqual(await folderLayout(app), [
+    "Heavy singles",
+    "Mobility",
+    "Off season / Week 1 / Volume",
+    "Openers",
+  ]);
+});
+
+test("export can take just one folder", async () => {
+  const { app, folder } = await phoneWithFolder();
+  const file = await exportFolder(app, folder.id);
+  assert.equal(file.folder.name, "Nationals Prep");
+  assert.deepEqual(file.plans.map((p) => p.name).sort(), ["Heavy singles", "Openers"]);
+  assert.ok(file.plans.every((p) => p.folder === "Nationals Prep" && p.folder_uid));
+  assert.match(app.shared.at(-1).name, /^gym-planner-plans-nationals-prep-\d{4}-\d\d-\d\d\.txt$/);
+
+  const all = await exportFolder(app);
+  assert.equal(all.folder, undefined);
+  assert.equal(all.plans.length, 4);
+  assert.equal(all.plans.find((p) => p.name === "Mobility").folder, null);
+});
+
+test("Export plans asks which folder only when there are folders", async () => {
+  const plainPhone = await phone();
+  await addPlan(plainPhone, "Legs");
+  await exportPlans(plainPhone); // shares straight away, as before folders
+  assert.equal(plainPhone.shared.length, 1);
+
+  const { app } = await phoneWithFolder();
+  await app.run('actions["export-plans"]()');
+  assert.equal(app.shared.length, 0, "the folder sheet opens instead");
+});
+
+test("importing a folder file recreates the folder, and repeats add nothing", async () => {
+  const { app: a, folder } = await phoneWithFolder();
+  const file = await exportFolder(a, folder.id);
+  const b = await phone();
+  await addPlan(b, "Mine");
+
+  assert.deepEqual(await importPlans(b, file, "add"), { added: 2, skipped: 0 });
+  assert.deepEqual(await importPlans(b, file, "add"), { added: 0, skipped: 2 });
+  assert.deepEqual(await folderLayout(b), [
+    "Mine",
+    "Nationals Prep: Openers",
+    "Nationals Prep: Peak / Week 1 / Heavy singles",
+  ]);
+
+  // A rename on phone A still matches by uid.
+  await put(a, `/folders/${folder.id}`, { name: "Nationals 2027" });
+  assert.deepEqual(await importPlans(b, await exportFolder(a, folder.id), "add"), {
+    added: 0,
+    skipped: 2,
+  });
+  const data = plain(await b.run("localData()"));
+  assert.equal(data.folders.length, 1, "no duplicate folder");
+});
+
+test("a file from before folders imports outside any folder", async () => {
+  const { app: b } = await phoneWithFolder();
+  const old = oldPlansFile([
+    ["Openers", null], // same name as the folder's loose plan, but not in it
+    ["Day 1", ["Peak", "Week 1"]], // a block named like the folder's, outside it
+  ]);
+  assert.deepEqual(await importPlans(b, old, "add"), { added: 2, skipped: 0 });
+  const layout = await folderLayout(b);
+  assert.ok(layout.includes("Openers"));
+  assert.ok(layout.includes("Nationals Prep: Openers"));
+  assert.ok(layout.includes("Peak / Week 1 / Day 1"));
+});
+
+test("Overwrite with a folder file replaces folders too", async () => {
+  const { app: a, folder } = await phoneWithFolder();
+  const file = await exportFolder(a, folder.id);
+  const { app: b } = await phoneWithFolder();
+  await post(b, "/folders", { name: "Other folder" });
+  assert.deepEqual(await importPlans(b, file, "replace"), { added: 2, skipped: 0 });
+  const data = plain(await b.run("localData()"));
+  assert.deepEqual(data.folders.map((f) => f.name), ["Nationals Prep"]);
+  assert.deepEqual(await folderLayout(b), [
+    "Nationals Prep: Openers",
+    "Nationals Prep: Peak / Week 1 / Heavy singles",
+  ]);
+});
