@@ -500,7 +500,11 @@ async function api(path, options = {}) {
     });
     data.groups = data.groups.filter((g) => !gone.has(g.id));
   } else if (path === "/folders" && method === "GET")
-    result = [...data.folders].sort(byName);
+    result = [...data.folders].sort(byOrder);
+  else if (path === "/folders/order" && method === "PUT") {
+    setOrder(data.folders, body.ids || []);
+    result = null;
+  }
   else if (path === "/folders" && method === "POST") {
     const folder = {
       id: data.nextIds.folder++,
@@ -1035,10 +1039,11 @@ const GRIP = `<button type="button" class="drag-handle" data-drag-handle aria-la
 
 // ------------------------------------- hold and drag to reorder or file away
 
-/* On the Plans tab, touch and hold a plan card or a block's title, then drag
- * it and let go:
- * - over another plan (or block), it goes just above or below that one, in
- *   that one's list, so this both reorders and moves between lists;
+/* On the Plans tab, touch and hold a plan card or a block's or folder's
+ * title, then drag it and let go:
+ * - over another plan (or block, or folder), it goes just above or below that
+ *   one, in that one's list, so this both reorders and moves between lists;
+ *   folders only reorder, as they always sit at the top;
  * - onto a folder (or, for a plan, a week) elsewhere, it goes in there, last;
  * - onto the bar at the bottom, it comes out of any folder.
  * Moving the finger before the hold completes is a normal scroll. */
@@ -1081,7 +1086,8 @@ function startMove() {
   document.body.append(ghost);
   source.classList.add("moving");
   $("#toast").hidden = true;
-  $("#unfile").hidden = false;
+  // Folders can't go in anything, so there's nothing to take them out of.
+  $("#unfile").hidden = kind === "folder";
   document.body.classList.add("dragging");
   move = {
     kind,
@@ -1105,6 +1111,7 @@ function startMove() {
 
 /** The nearest place at or above `el` that can take this kind of item. */
 function dropTarget(kind, el) {
+  if (kind === "folder") return null;
   for (let node = el?.closest("[data-drop]"); node; node = node.parentElement?.closest("[data-drop]")) {
     const [where] = node.dataset.drop.split(":");
     if (where !== "week" || kind === "plan") return node;
@@ -1216,7 +1223,9 @@ async function reorderTo(kind, id, item, next, after) {
   const sameList = item.parentElement === next.parentElement;
   if (sameList && inList(item).map(idOf).join() === ids.join()) return;
 
-  if (kind === "block") {
+  if (kind === "folder") {
+    await api("/folders/order", { method: "PUT", body: { ids } });
+  } else if (kind === "block") {
     const block = state.groups.find((g) => g.id === id);
     const other = state.groups.find((g) => g.id === idOf(next));
     if (!block || !other) return;
@@ -1565,7 +1574,8 @@ function renderPlans() {
     plansIn(null).filter((p) => (p.folder_id ?? null) === folderId);
 
   // Folders share openGroups with blocks and weeks, keyed "f<id>". `drop`
-  // makes it a place to drop a held plan or block; `move` lets a block be held.
+  // makes it a place to drop a held plan or block; `move` lets a block or
+  // folder be held.
   const groupHtml = (
     group,
     inner,
@@ -1637,7 +1647,12 @@ function renderPlans() {
           <button class="btn small ghost" data-action="copy-folder" data-id="${folder.id}">Duplicate</button>
           ${editTools(folder, "folder")}
         </div>`,
-        { key: `f${folder.id}`, kind: "folder", drop: `folder:${folder.id}` },
+        {
+          key: `f${folder.id}`,
+          kind: "folder",
+          drop: `folder:${folder.id}`,
+          move: `folder:${folder.id}`,
+        },
       );
     })
     .join("");

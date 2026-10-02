@@ -472,6 +472,25 @@ test("plans and blocks keep the order they're dragged into", async () => {
   assert.equal(b1.position, undefined);
 });
 
+test("folders keep the order they're dragged into, and it survives a backup", async () => {
+  const app = await phone();
+  for (const name of ["F1", "F2", "F3"]) await post(app, "/folders", { name });
+  const names = async () => plain(await app.run('api("/folders")')).map((f) => f.name);
+  assert.deepEqual(await names(), ["F1", "F2", "F3"], "by name until dragged");
+
+  const ids = plain(await app.run("localData()")).folders.map((f) => f.id);
+  await put(app, "/folders/order", { ids: [ids[2], ids[0], ids[1]] });
+  assert.deepEqual(await names(), ["F3", "F1", "F2"]);
+  await post(app, "/folders", { name: "Aardvark" });
+  assert.deepEqual(await names(), ["F3", "F1", "F2", "Aardvark"], "new folders go last");
+
+  const backup = plain(await app.run("localData()"));
+  const fresh = await phone();
+  await fresh.run(`writeLocalData(backupToData(${JSON.stringify(backup)}))`);
+  const freshNames = plain(await fresh.run('api("/folders")')).map((f) => f.name);
+  assert.deepEqual(freshNames, ["F3", "F1", "F2", "Aardvark"]);
+});
+
 test("duplicating a folder copies its blocks, weeks and plans with new uids", async () => {
   const { app, folder } = await phoneWithFolder();
   const copy = plain(await post(app, `/folders/${folder.id}/copy`, { name: "Nationals 2027" }));
