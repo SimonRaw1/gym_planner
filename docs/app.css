@@ -1035,3 +1035,28 @@ body.gated .tabbar {
   border-radius: 999px;
   background: var(--bg);
 }
+
+/* Bear logo next to the app name: on the install gate and at the foot of
+ * Settings. The icon has its own black square, so it reads on every theme. */
+.brand-logo {
+  width: 96px;
+  height: 96px;
+  border-radius: 22px;
+}
+.brand-logo.small {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+.brand-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}

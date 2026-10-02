@@ -244,7 +244,7 @@ test("the import sheet's dry run leaves the phone alone", async () => {
 test("files without plans are refused", () => {
   const app = loadApp();
   app.context.bad = { hello: 1 };
-  assert.throws(() => app.run("importPlans({}, bad)"), /no Gym Planner plans/);
+  assert.throws(() => app.run("importPlans({}, bad)"), /no Raw Muscle plans/);
 });
 
 // ------------------------------------------------------------------ folders
@@ -352,7 +352,7 @@ test("export can take just one folder", async () => {
   assert.equal(file.folder.name, "Nationals Prep");
   assert.deepEqual(file.plans.map((p) => p.name).sort(), ["Heavy singles", "Openers"]);
   assert.ok(file.plans.every((p) => p.folder === "Nationals Prep" && p.folder_uid));
-  assert.match(app.shared.at(-1).name, /^gym-planner-plans-nationals-prep-\d{4}-\d\d-\d\d\.txt$/);
+  assert.match(app.shared.at(-1).name, /^raw-muscle-plans-nationals-prep-\d{4}-\d\d-\d\d\.txt$/);
 
   const all = await exportFolder(app);
   assert.equal(all.folder, undefined);

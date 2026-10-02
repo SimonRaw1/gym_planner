@@ -268,7 +268,7 @@ test("files that are not backups are refused", () => {
   const app = loadApp();
   const refuse = (value) => {
     app.context.candidate = value;
-    assert.throws(() => app.run("backupToData(candidate)"), /not a Gym Planner backup/);
+    assert.throws(() => app.run("backupToData(candidate)"), /not a Raw Muscle backup/);
   };
   refuse(null);
   refuse({});

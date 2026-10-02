@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "Gym Planner",
-  "short_name": "Gym",
+  "name": "Raw Muscle Gym Tracker",
+  "short_name": "Raw Muscle",
   "description": "Plan workouts and log sets from your phone.",
   "start_url": "./",
   "scope": "./",

@@ -1,4 +1,4 @@
-/* Gym Planner front end.
+/* Raw Muscle Gym Tracker front end.
  *
  * Deliberately dependency-free: one state object, a render per view, and click
  * delegation off the document. Small enough to read in one sitting, which is the
@@ -1385,10 +1385,12 @@ function renderInstallGate() {
   gate.hidden = !isGated;
   if (!isGated) return;
   gate.innerHTML = justInstalled
-    ? `<h1>Gym Planner</h1>
-       <p class="muted">Installed. Open <strong>Gym</strong> from your home
+    ? `<img class="brand-logo" src="icons/icon-192.png" alt="" />
+       <h1>Raw Muscle Gym Tracker</h1>
+       <p class="muted">Installed. Open <strong>Raw Muscle</strong> from your home
          screen to start.</p>`
-    : `<h1>Gym Planner</h1>
+    : `<img class="brand-logo" src="icons/icon-192.png" alt="" />
+       <h1>Raw Muscle Gym Tracker</h1>
        <p class="muted">Install the app to use it. It opens full screen and
          works with no connection${isIos() ? ", and Safari won't clear your workouts" : ""}.</p>
        <button class="btn" data-action="${installPrompt ? "install-app" : "install-help"}">Install app</button>`;
@@ -2148,7 +2150,7 @@ const actions = {
       openSheet(
         "Install the app",
         `<p>Open your browser's menu and choose <strong>Install app</strong>
-          or <strong>Add to Home screen</strong>, then open <strong>Gym</strong>
+          or <strong>Add to Home screen</strong>, then open <strong>Raw Muscle</strong>
           from your home screen.</p>`,
       );
       return;
@@ -2161,7 +2163,7 @@ const actions = {
             under <strong>&bull;&bull;&bull;</strong>.</li>
           <li>Tap <strong>Add to Home Screen</strong>. You may need to scroll
             down or tap <strong>View More</strong>.</li>
-          <li>Tap <strong>Add</strong>, then open <strong>Gym</strong> from
+          <li>Tap <strong>Add</strong>, then open <strong>Raw Muscle</strong> from
             your home screen.</li>
         </ol>
         <p class="muted" style="margin-top:14px">Your workouts are kept on this
@@ -2202,6 +2204,10 @@ const actions = {
         <div class="row" style="margin-top:10px">
           <button class="btn small ghost" data-action="export-data">Export data</button>
           <button class="btn small ghost" data-action="import-data">Import data</button>
+        </div>
+        <div class="brand-footer">
+          <img class="brand-logo small" src="icons/icon-192.png" alt="" />
+          <span>Raw Muscle Gym Tracker</span>
         </div>`,
     );
     renderUnitButtons();
@@ -2620,7 +2626,7 @@ const actions = {
     const data = dataCache;
     if (!data) return toast("Nothing to export yet");
     const stamp = new Date().toISOString();
-    const name = `gym-planner-backup-${stamp.slice(0, 10)}`;
+    const name = `raw-muscle-backup-${stamp.slice(0, 10)}`;
     const json = JSON.stringify({ ...data, exported_at: stamp }, null, 2);
     if (!(await shareJson(name, json))) return;
     await writeLocalData({ ...data, last_export: nowTs() });
@@ -2704,7 +2710,7 @@ async function exportPlansFile(data, folderId) {
   const slug = folder
     ? folder.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
     : "";
-  const name = `gym-planner-plans-${slug ? `${slug}-` : ""}${stamp.slice(0, 10)}`;
+  const name = `raw-muscle-plans-${slug ? `${slug}-` : ""}${stamp.slice(0, 10)}`;
   const json = JSON.stringify(
     plansToExport(data, stamp, folder ? folder.id : null),
     null,
@@ -2873,7 +2879,7 @@ function importedPlansList(imported) {
     Array.isArray(imported.exercises)
   )
     return plansToExport(imported, "").plans;
-  throw new Error("That file has no Gym Planner plans");
+  throw new Error("That file has no Raw Muscle plans");
 }
 
 /** Import the plans from a plans export (or a full backup) into the local data.
@@ -3045,7 +3051,7 @@ function backupToData(imported) {
     imported?.version !== 1 ||
     !lists.every((k) => Array.isArray(imported[k]))
   ) {
-    throw new Error("That file is not a Gym Planner backup");
+    throw new Error("That file is not a Raw Muscle backup");
   }
   const groups = Array.isArray(imported.groups) ? imported.groups : [];
   const folders = Array.isArray(imported.folders) ? imported.folders : [];
@@ -3117,7 +3123,7 @@ $("#import-file").addEventListener("change", async (ev) => {
     try {
       parsed = JSON.parse(await file.text());
     } catch {
-      throw new Error("That file is not a Gym Planner backup");
+      throw new Error("That file is not a Raw Muscle backup");
     }
     const data = backupToData(parsed);
     const count = data.sessions.length;
@@ -3150,7 +3156,7 @@ $("#import-plans-file").addEventListener("change", async (ev) => {
     try {
       parsed = JSON.parse(await file.text());
     } catch {
-      throw new Error("That file has no Gym Planner plans");
+      throw new Error("That file has no Raw Muscle plans");
     }
     // A dry run on a copy, to say how many are new before anything changes.
     const { added, skipped } = importPlans(

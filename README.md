@@ -1,6 +1,6 @@
-# gym_planner
+# Raw Muscle Gym Tracker
 
-A gym app for your phone. It installs to the home screen, works with no
+Raw Muscle is a gym app for your phone. It installs to the home screen, works with no
 connection, and keeps everything on the phone.
 
 Build plans, start a workout, log sets with your thumb, see what you lifted last
@@ -16,9 +16,9 @@ In a browser tab the app shows only an **Install app** button; it runs once it
 is on the home screen.
 
 - **Android (Chrome):** tap **Install app** and confirm. The app then shows up
-  on the home screen and in the app drawer; open it from there.
+  on the home screen and in the app drawer as **Raw Muscle**; open it from there.
 - **iPhone:** tap **Install app** for the steps: **Share** &rarr; **Add to Home
-  Screen** &rarr; **Add**, then open **Gym** from the home screen. Installing
+  Screen** &rarr; **Add**, then open **Raw Muscle** from the home screen. Installing
   also protects your data: Safari may clear the storage of a site that isn't on
   the home screen and hasn't been opened for a week, which would erase your
   workouts.
