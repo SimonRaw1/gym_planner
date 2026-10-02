@@ -574,6 +574,31 @@ label {
 .exercise-head.done {
   border-left: 3px solid var(--good);
 }
+/* Marked Done: the title folds the card open and closed. */
+.exercise.finished .exercise-head [data-action="toggle-exercise"] {
+  cursor: pointer;
+}
+.chev-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-right: -8px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.exercise.open .chev-btn .chev {
+  transform: rotate(45deg);
+}
+.exercise-foot {
+  display: flex;
+  padding: 0 14px 14px;
+}
+.exercise-foot .btn {
+  flex: 1;
+}
 .target {
   font-size: 0.8rem;
   color: var(--muted);

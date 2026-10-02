@@ -13,6 +13,9 @@ const state = {
   groups: [], // blocks (parent_id null) and the weeks inside them
   openGroups: new Set(loadPref("open-groups", [])), // expanded on the Plans tab
   session: null,
+  // Exercises marked Done in the running session, and which of those are
+  // expanded again: { session, done: [exercise ids], open: [exercise ids] }.
+  finished: loadPref("finished-exercises", null),
   inSession: false, // the session screen is showing (vs. just running)
   history: [],
   historyExercise: null, // exercise id the History list is filtered to
@@ -84,6 +87,24 @@ applyTheme(loadPref("theme", "rawmuscle"));
 function saveOpenGroups() {
   savePref("open-groups", [...state.openGroups]);
 }
+
+/** The Done marks for the running session; another session starts clean. */
+function finishedExercises() {
+  const session = state.session?.id ?? null;
+  if (state.finished?.session !== session)
+    state.finished = { session, done: [], open: [] };
+  return state.finished;
+}
+
+/** Change the Done marks for one exercise, then save and redraw. */
+function markExercise(id, change) {
+  const f = finishedExercises();
+  change(f, Number(id));
+  savePref("finished-exercises", f);
+  renderActiveSession();
+}
+
+const without = (ids, id) => ids.filter((x) => x !== id);
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -1487,10 +1508,17 @@ function renderActiveSession() {
   $("#session-name").textContent = s.name;
   $("#session-meta").textContent = sessionMeta(s);
 
+  const finished = finishedExercises();
   $("#exercise-list").innerHTML =
     s.items
       .map((item) => {
         const sets = s.sets.filter((x) => x.exercise_id === item.exercise_id);
+        // Done hides the log form; the card folds to its title until tapped.
+        const isDone = finished.done.includes(item.exercise_id);
+        const isOpen = !isDone || finished.open.includes(item.exercise_id);
+        const toggle = isDone
+          ? ` data-action="toggle-exercise" data-ex="${item.exercise_id}"`
+          : "";
         const working = sets.filter((x) => !x.warmup).length;
         const prev = s.previous[String(item.exercise_id)];
         const done = item.target_sets > 0 && working >= item.target_sets;
@@ -1512,10 +1540,10 @@ function renderActiveSession() {
         const fillRpe = last?.rpe ?? item.target_rpe ?? prev?.rpe ?? "";
 
         return `
-      <article class="exercise" data-drag-item>
-        <div class="exercise-head${done ? " done" : ""}">
+      <article class="exercise${isDone ? " finished" : ""}${isOpen ? " open" : ""}" data-drag-item>
+        <div class="exercise-head${done || isDone ? " done" : ""}">
           ${GRIP}
-          <div class="grow">
+          <div class="grow"${toggle}>
             <h3>${esc(item.name)}</h3>
             <div class="target">${target} &middot; rest ${item.rest_seconds}s</div>
             ${
@@ -1525,9 +1553,21 @@ function renderActiveSession() {
                 : ""
             }
           </div>
-          <span class="pill">${working}${item.target_sets ? `/${item.target_sets}` : ""}</span>
+          <span class="pill"${toggle}>${working}${item.target_sets ? `/${item.target_sets}` : ""}</span>
+          ${isDone ? `<button type="button" class="chev-btn"${toggle} aria-label="${isOpen ? "Collapse" : "Expand"}" aria-expanded="${isOpen}"><span class="chev" aria-hidden="true"></span></button>` : ""}
         </div>
-        ${
+        ${!isOpen ? "" : isDone ? `${
+          sets.length
+            ? `<div class="setlist">${setRowsHtml(
+                sets,
+                (x) => `<button class="del" data-action="del-set" data-id="${x.id}"
+              aria-label="Delete set">&times;</button>`,
+              )}</div>`
+            : ""
+        }
+        <div class="exercise-foot">
+          <button class="btn small ghost" data-action="add-set" data-ex="${item.exercise_id}">+ Add set</button>
+        </div>` : `${
           sets.length
             ? `<div class="setlist">${setRowsHtml(
                 sets,
@@ -1549,6 +1589,9 @@ function renderActiveSession() {
             Warm up
           </label>
         </div>
+        <div class="exercise-foot">
+          <button class="btn small ghost" data-action="exercise-done" data-ex="${item.exercise_id}">Done</button>
+        </div>`}
       </article>`;
       })
       .join("") || '<p class="empty">Add an exercise to get going.</p>';
@@ -2308,6 +2351,27 @@ const actions = {
     buzz();
     renderActiveSession();
     startRest(Number(form.dataset.rest));
+  },
+
+  "exercise-done"(el) {
+    markExercise(el.dataset.ex, (f, id) => {
+      f.done = [...without(f.done, id), id];
+      f.open = without(f.open, id);
+    });
+  },
+
+  "toggle-exercise"(el) {
+    markExercise(el.dataset.ex, (f, id) => {
+      f.open = f.open.includes(id) ? without(f.open, id) : [...f.open, id];
+    });
+  },
+
+  // Back to logging: the form and Done button return.
+  "add-set"(el) {
+    markExercise(el.dataset.ex, (f, id) => {
+      f.done = without(f.done, id);
+      f.open = without(f.open, id);
+    });
   },
 
   async "del-set"(el) {
