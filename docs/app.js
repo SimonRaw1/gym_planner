@@ -23,6 +23,7 @@ const state = {
   unit: loadPref("unit", "kg"), // how weights are shown and typed; stored in kg
   draft: null, // plan being edited in the sheet
   pendingPlans: null, // parsed plans file waiting for Add new / Overwrite
+  exportLinks: null, // Map of folder id ("" for all) to its plans link (a promise)
   rest: null, // { until: epochMs, timer: intervalId }
 };
 
@@ -1419,16 +1420,26 @@ function renderInstallGate() {
   const gate = $("#install-gate");
   gate.hidden = !isGated;
   if (!isGated) return;
+  const plansWaiting = loadPref("pending-plans", null)
+    ? isIos()
+      ? `<p class="muted">Someone sent you plans. iPhone keeps the installed app
+           apart from Safari, so tap <strong>Copy plans</strong>, install the app,
+           then paste them in <strong>Plans › Import plans</strong>.</p>
+         <button class="btn ghost" data-action="copy-pending-plans">Copy plans</button>`
+      : `<p class="muted">Someone sent you plans; they'll be waiting when you open
+           the app. Already have it? Open <strong>Raw Muscle</strong> from your home screen.</p>`
+    : "";
   gate.innerHTML = justInstalled
     ? `<img class="brand-logo" src="icons/icon-192.png" alt="" />
        <h1>Raw Muscle Gym Tracker</h1>
        <p class="muted">Installed. Open <strong>Raw Muscle</strong> from your home
-         screen to start.</p>`
+         screen to start.</p>${plansWaiting}`
     : `<img class="brand-logo" src="icons/icon-192.png" alt="" />
        <h1>Raw Muscle Gym Tracker</h1>
        <p class="muted">Install the app to use it. It opens full screen and
          works with no connection${isIos() ? ", and Safari won't clear your workouts" : ""}.</p>
-       <button class="btn" data-action="${installPrompt ? "install-app" : "install-help"}">Install app</button>`;
+       <button class="btn" data-action="${installPrompt ? "install-app" : "install-help"}">Install app</button>
+       ${plansWaiting}`;
 }
 
 const SHARE_ICON = `<svg class="inline-icon" viewBox="0 0 24 24" fill="none"
@@ -2722,34 +2733,58 @@ const actions = {
     $("#import-file").click();
   },
 
+  /* Export sends a link by default; whoever taps it gets the plans in their
+   * app. The links are built while the sheet is open, so a tap can share
+   * straight away (browsers only allow sharing right after a tap). */
   "export-plans"() {
     const data = dataCache;
     if (!data?.plans.length) return toast("No plans to export");
-    ensureGroups(data);
-    const folders = data.folders
-      .map((folder) => ({
-        folder,
-        count: data.plans.filter((p) => planFolderId(data, p) === folder.id)
-          .length,
-      }))
-      .filter((f) => f.count)
-      .sort((a, b) => byName(a.folder, b.folder));
-    if (!folders.length) return exportPlansFile(data, null);
-    // A tap on the sheet starts the share, which browsers only allow right
-    // after a tap.
+    ensureUids(data);
+    const stamp = new Date().toISOString();
+    state.exportLinks = new Map(
+      exportScopes(data).map(({ folder }) => {
+        const id = folder ? folder.id : null;
+        const link = plansLink(plansToExport(data, stamp, id));
+        link.catch(() => {}); // reported if that one is tapped
+        return [String(id ?? ""), link];
+      }),
+    );
     openSheet(
       "Export plans",
-      '<p class="muted">Export every plan, or just one folder.</p>',
+      '<p class="muted">Send a link, in WhatsApp or anywhere else. Whoever taps it gets the plans in their Raw Muscle app.</p>',
       `<div class="stack tight">
-        <button class="btn good" data-action="export-plans-go" data-folder="">All plans (${data.plans.length})</button>
-        ${folders
-          .map(
-            ({ folder, count }) =>
-              `<button class="btn ghost" data-action="export-plans-go" data-folder="${folder.id}">${esc(folder.name)} (${count})</button>`,
-          )
-          .join("")}
+        ${exportButtons(data, "share-plans-link")}
+        <button class="btn small subtle" data-action="export-plans-files">Send a file instead</button>
       </div>`,
     );
+  },
+
+  "export-plans-files"() {
+    const data = dataCache;
+    if (!data) return closeSheet();
+    openSheet(
+      "Export plans",
+      '<p class="muted">A file to keep, or for someone to add with Import plans.</p>',
+      `<div class="stack tight">${exportButtons(data, "export-plans-go")}</div>`,
+    );
+  },
+
+  async "share-plans-link"(el) {
+    const data = dataCache;
+    const pending = state.exportLinks?.get(el.dataset.folder);
+    if (!data || !pending) return closeSheet();
+    const folder = data.folders.find((f) => f.id === Number(el.dataset.folder));
+    const link = await pending;
+    if (link.length > MAX_LINK) {
+      toast("Too many plans for one link; send a file instead");
+      return actions["export-plans-files"]();
+    }
+    const title = folder ? `Raw Muscle plans: ${folder.name}` : "Raw Muscle plans";
+    const how = await shareLink(title, link);
+    if (!how) return; // share sheet closed: leave the choices up
+    closeSheet();
+    await writeLocalData(data); // keeps the uids the link was made with
+    toast(how === "copied" ? "Link copied; paste it into a message" : "Plans sent");
   },
 
   async "export-plans-go"(el) {
@@ -2761,7 +2796,34 @@ const actions = {
   },
 
   "import-plans"() {
+    openSheet(
+      "Import plans",
+      `<div><label for="plans-link">Paste a plans link</label>
+        <textarea id="plans-link" rows="3" placeholder="https://…#plans=…"></textarea></div>`,
+      `<div class="stack tight">
+        <button class="btn good" data-action="import-plans-link">Add from link</button>
+        <button class="btn ghost" data-action="import-plans-file">Choose a file</button>
+      </div>`,
+    );
+  },
+
+  async "import-plans-link"() {
+    const packed = packedFromText($("#plans-link").value);
+    if (!packed) return toast("That isn't a plans link");
+    await offerPlansImport(await unpackPlans(packed), "link");
+  },
+
+  "import-plans-file"() {
+    closeSheet();
     $("#import-plans-file").click();
+  },
+
+  // The install page on iPhone: Safari can't hand plans to the installed app.
+  async "copy-pending-plans"() {
+    const packed = loadPref("pending-plans", null);
+    if (!packed) return;
+    await navigator.clipboard.writeText(linkFor(packed));
+    toast("Copied. Install the app, then paste it in Plans › Import plans");
   },
 
   async "import-plans-add"() {
@@ -2785,6 +2847,28 @@ const actions = {
   },
 };
 
+/** What can be exported: every plan, then each folder that has some. */
+function exportScopes(data) {
+  ensureGroups(data);
+  const folders = data.folders
+    .map((folder) => ({
+      folder,
+      count: data.plans.filter((p) => planFolderId(data, p) === folder.id).length,
+    }))
+    .filter((f) => f.count)
+    .sort((a, b) => byName(a.folder, b.folder));
+  return [{ folder: null, count: data.plans.length }, ...folders];
+}
+
+function exportButtons(data, action) {
+  return exportScopes(data)
+    .map(
+      ({ folder, count }, i) =>
+        `<button class="btn ${i ? "ghost" : "good"}" data-action="${action}" data-folder="${folder ? folder.id : ""}">${folder ? esc(folder.name) : "All plans"} (${count})</button>`,
+    )
+    .join("");
+}
+
 /** Share a plans file: every plan, or with `folderId` one folder's. No awaits
  * before share(): browsers only allow it straight after a tap. */
 async function exportPlansFile(data, folderId) {
@@ -2803,6 +2887,26 @@ async function exportPlansFile(data, folderId) {
   if (!(await shareJson(name, json))) return;
   await writeLocalData(data);
   toast(folder ? `${folder.name} exported` : "Plans exported");
+}
+
+/** Ask whether to add or overwrite with plans from a file or link, after a dry
+ * run on a copy to say how many are new. */
+async function offerPlansImport(parsed, source) {
+  const { added, skipped } = importPlans(structuredClone(await localData()), parsed);
+  openSheet(
+    "Import plans",
+    `<p>This ${source} has ${parsed.folder?.name ? `the folder ${esc(String(parsed.folder.name))} with ` : ""}${plural(added + skipped, "plan")}.
+      ${added ? `${added} ${added === 1 ? "is" : "are"} new.` : "You already have all of them."}</p>
+    <p class="muted"><strong>Add new plans</strong> keeps your plans and adds
+      only the ones you don't have, into their folders, blocks and weeks.
+      <strong>Overwrite all plans</strong> deletes your plans, folders, blocks
+      and weeks and uses the ${source}'s list instead. Logged workouts are kept.</p>`,
+    `<div class="stack tight">
+      <button class="btn good" data-action="import-plans-add">Add new plans</button>
+      <button class="btn danger" data-action="import-plans-replace">Overwrite all plans</button>
+    </div>`,
+  );
+  state.pendingPlans = parsed;
 }
 
 /** Apply the plans file waiting in state.pendingPlans. */
@@ -2876,6 +2980,97 @@ async function shareJson(name, json) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return true;
 }
+
+// ------------------------------------------------------------ plans links
+
+/* Plans can travel as a link: the plans export, compressed into the part after
+ * "#", which browsers never send to the server. Opening it shows the Import
+ * plans sheet. A link that opens in the browser rather than the installed app
+ * (or before installing) waits in localStorage ("pending-plans") until the app
+ * opens. On Android the browser and the app share that storage; on iPhone
+ * they don't, so there the install page offers to copy the link instead, for
+ * Plans › Import plans in the app. */
+
+const LINK_KEY = "#plans=";
+const MAX_LINK = 60000; // WhatsApp takes messages up to 65,536 characters
+
+/** The link for a plans export (a promise). */
+async function plansLink(exported) {
+  const bytes = new TextEncoder().encode(JSON.stringify(exported));
+  const zipped = await new Response(
+    new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw")),
+  ).arrayBuffer();
+  let bin = "";
+  new Uint8Array(zipped).forEach((b) => (bin += String.fromCharCode(b)));
+  const packed = btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return linkFor(packed);
+}
+
+function linkFor(packed) {
+  return new URL("./", location.href).href + LINK_KEY + packed;
+}
+
+/** The packed plans in a link, or in a message with a link in it. */
+function packedFromText(text) {
+  return /#plans=([\w-]+)/.exec(text || "")?.[1] ?? null;
+}
+
+async function unpackPlans(packed) {
+  try {
+    const bin = atob(packed.replace(/-/g, "+").replace(/_/g, "/"));
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    const text = await new Response(
+      new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw")),
+    ).text();
+    return JSON.parse(text);
+  } catch {
+    throw new Error("That plans link is broken or cut short");
+  }
+}
+
+/** Share a link as message text (most apps drop a separate url field), or copy
+ * it where there's no share sheet. Resolves "shared", "copied", or false if
+ * the share sheet was closed. */
+async function shareLink(title, link) {
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text: `${title}\nTap to add them to your app:\n${link}` });
+      return "shared";
+    } catch (err) {
+      if (err.name === "AbortError") return false;
+      if (err.name !== "NotAllowedError") throw err;
+    }
+  }
+  await navigator.clipboard.writeText(link);
+  return "copied";
+}
+
+/** Plans from a link the app was opened with go to "pending-plans", and the
+ * link comes off the address so a reload doesn't offer them again. */
+function keepPlansFromAddress() {
+  const packed = packedFromText(location.hash);
+  if (!packed) return false;
+  savePref("pending-plans", packed);
+  history.replaceState(null, "", location.pathname + location.search);
+  return true;
+}
+
+/** Offer the plans waiting from a link, once. */
+async function offerPendingPlans() {
+  const packed = loadPref("pending-plans", null);
+  if (!packed) return;
+  savePref("pending-plans", null);
+  try {
+    await offerPlansImport(await unpackPlans(packed), "link");
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+// A link tapped while the app is already open only changes the "#" part.
+window.addEventListener("hashchange", () => {
+  if (keepPlansFromAddress() && !isGated) offerPendingPlans();
+});
 
 /** A random id that stays with a plan, folder, block or week across phones, so an
  * import can tell what it already has. */
@@ -3242,25 +3437,7 @@ $("#import-plans-file").addEventListener("change", async (ev) => {
     } catch {
       throw new Error("That file has no Raw Muscle plans");
     }
-    // A dry run on a copy, to say how many are new before anything changes.
-    const { added, skipped } = importPlans(
-      structuredClone(await localData()),
-      parsed,
-    );
-    openSheet(
-      "Import plans",
-      `<p>This file has ${parsed.folder?.name ? `the folder ${esc(String(parsed.folder.name))} with ` : ""}${plural(added + skipped, "plan")}.
-        ${added ? `${added} ${added === 1 ? "is" : "are"} new.` : "You already have all of them."}</p>
-      <p class="muted"><strong>Add new plans</strong> keeps your plans and adds
-        only the ones you don't have, into their folders, blocks and weeks.
-        <strong>Overwrite all plans</strong> deletes your plans, folders, blocks
-        and weeks and uses the file's list instead. Logged workouts are kept.</p>`,
-      `<div class="stack tight">
-        <button class="btn good" data-action="import-plans-add">Add new plans</button>
-        <button class="btn danger" data-action="import-plans-replace">Overwrite all plans</button>
-      </div>`,
-    );
-    state.pendingPlans = parsed;
+    await offerPlansImport(parsed, "file");
   } catch (err) {
     toast(err.message || "Could not import plans");
   }
@@ -3275,6 +3452,7 @@ setInterval(() => {
 }, 30000);
 
 (async function boot() {
+  keepPlansFromAddress();
   renderInstallGate();
   if (isGated) {
     // Nothing to run until installed, but the service worker is what makes the
@@ -3297,6 +3475,7 @@ setInterval(() => {
     : stack.filter((screen) => screen !== "session");
   if (wanted.join() === stack.join()) showScreen(stack);
   else navigate(wanted);
+  offerPendingPlans();
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {
       toast("Offline mode unavailable");

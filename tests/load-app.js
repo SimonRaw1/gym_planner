@@ -63,6 +63,7 @@ function fakeIndexedDB(stored) {
 function loadApp(stored = new Map(), prefs = new Map()) {
   const dom = inert();
   const shared = []; // files handed to the share sheet
+  const sharedText = [];
   const context = {
     console,
     setTimeout,
@@ -72,15 +73,25 @@ function loadApp(stored = new Map(), prefs = new Map()) {
     structuredClone,
     File,
     Blob,
+    Response,
+    URL,
+    TextEncoder,
+    CompressionStream,
+    DecompressionStream,
+    btoa,
+    atob,
     document: dom,
     window: dom,
     navigator: {
       userAgent: "node",
       standalone: false,
       canShare: () => true,
-      share: async ({ files }) => void shared.push(...files),
+      // Files shared go in `shared`; text (like a plans link) in `sharedText`.
+      share: async ({ files, text }) =>
+        files ? void shared.push(...files) : void sharedText.push(text),
     },
-    location: { hostname: "example.test" }, // not localhost: boot stops at the install gate
+    // Not localhost: boot stops at the install gate.
+    location: { hostname: "example.test", href: "https://example.test/gym_planner/", hash: "" },
     matchMedia: () => ({ matches: false }),
     getComputedStyle: () => ({ getPropertyValue: () => "" }),
     confirm: () => true,
@@ -97,6 +108,7 @@ function loadApp(stored = new Map(), prefs = new Map()) {
     prefs,
     context,
     shared,
+    sharedText,
     /** Run an expression inside the app's scope (sees its let/const too). */
     run: (code) => vm.runInContext(code, context),
     /** Forget the in-memory copy, as a reload would. */

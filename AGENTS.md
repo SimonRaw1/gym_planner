@@ -30,6 +30,9 @@ stays on their own phone, with no accounts.
 - Bump CACHE in docs/sw.js whenever a shell file changes.
 - Data is one JSON object in IndexedDB (version, nextIds, exercises, plans, sessions, last_export). Keep changes backward compatible with existing backups, or bump version and migrate in both localData() and backupToData(). Add a sample of the old shape to tests/backup.test.js when you do.
 - Backup is manual: Export shares a JSON file (for Google Drive), Import replaces all data.
+- Export plans sends a link by default: the plans export, deflate-compressed and
+  base64url-encoded after `#plans=`, so it never reaches the server. Keep that
+  format readable by unpackPlans() when the export shape changes.
 - Weights are stored in kg. The kg/lb setting (localStorage pref `unit`) only
   changes display and entry: show weights with fmtWeight() and unitLabel(), and
   convert typed weights with toKg().
