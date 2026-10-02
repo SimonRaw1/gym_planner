@@ -39,3 +39,7 @@ if __name__ == "__main__":
         path = ICON_DIR / name
         make_icon(logo, size, padding).save(path, optimize=True)
         print(f"wrote {path} ({path.stat().st_size} bytes)")
+    # The faint background watermark keeps the logo's transparency.
+    path = ICON_DIR / "watermark.png"
+    logo.save(path, optimize=True)
+    print(f"wrote {path} ({path.stat().st_size} bytes)")
