@@ -430,6 +430,47 @@ body::before {
 .group.folder .group .group .card {
   background: var(--surface-2);
 }
+/* A plan card's title drops down to list its exercises. */
+.plan-card > details > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+.plan-card > details > summary::-webkit-details-marker {
+  display: none;
+}
+.plan-card > details[open] > summary .chev {
+  transform: rotate(45deg);
+}
+.plan-exercises {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plan-exercises li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+}
+.plan-exercises .muted {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.group .group .plan-exercises li {
+  background: var(--surface-2);
+}
+.group.folder .group .group .plan-exercises li {
+  background: var(--surface);
+}
 .group-body {
   padding: 0 12px 12px;
 }

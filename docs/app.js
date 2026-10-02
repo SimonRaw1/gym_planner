@@ -1721,19 +1721,34 @@ function renderPlans() {
     '<p class="empty">No plans yet.<br>A plan is a named list of exercises with targets.<br>Group plans into blocks and weeks with + New block, and blocks into folders with + New folder.</p>';
 }
 
+/** A plan card: its title drops down to show the exercises (open ones are kept
+ * in openGroups as "p<id>"); Edit, Delete and Start stay in view. */
 function planCardHtml(p) {
+  const exercises = p.items
+    .map((it) => {
+      const name = state.exercises.find((e) => e.id === it.exercise_id)?.name || "Unknown exercise";
+      const target = it.target_sets
+        ? `${it.target_sets} &times; ${it.target_reps}${it.target_rpe != null ? ` @ RPE ${it.target_rpe}` : ""}`
+        : "no target";
+      return `<li><span class="grow">${esc(name)}</span><span class="muted">${target}</span></li>`;
+    })
+    .join("");
   return `
-        <div class="card" data-move="plan:${p.id}" data-order="plan:${p.id}">
-          <div class="spread">
-            <div class="grow">
-              <h2>${esc(p.name)}</h2>
-              <span class="muted">${p.exercise_count} exercise${p.exercise_count === 1 ? "" : "s"}${
-                p.last_done
-                  ? ` &middot; last ${esc(dayLabel(p.last_done))}`
-                  : ""
-              }</span>
-            </div>
-          </div>
+        <div class="card plan-card" data-move="plan:${p.id}" data-order="plan:${p.id}">
+          <details data-plan="${p.id}"${state.openGroups.has(`p${p.id}`) ? " open" : ""}>
+            <summary>
+              <span class="chev" aria-hidden="true"></span>
+              <div class="grow">
+                <h2>${esc(p.name)}</h2>
+                <span class="muted">${p.exercise_count} exercise${p.exercise_count === 1 ? "" : "s"}${
+                  p.last_done
+                    ? ` &middot; last ${esc(dayLabel(p.last_done))}`
+                    : ""
+                }</span>
+              </div>
+            </summary>
+            ${exercises ? `<ol class="plan-exercises">${exercises}</ol>` : '<p class="muted">No exercises yet.</p>'}
+          </details>
           ${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}
           <div class="row" style="margin-top:12px">
             <button class="btn small ghost" data-action="edit-plan" data-id="${p.id}">Edit</button>
@@ -3373,7 +3388,8 @@ document.addEventListener(
   "toggle",
   (ev) => {
     const folder = Number(ev.target.dataset?.folder);
-    const id = folder ? `f${folder}` : Number(ev.target.dataset?.group);
+    const plan = Number(ev.target.dataset?.plan);
+    const id = folder ? `f${folder}` : plan ? `p${plan}` : Number(ev.target.dataset?.group);
     if (!id) return;
     if (ev.target.open) state.openGroups.add(id);
     else state.openGroups.delete(id);
