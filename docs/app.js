@@ -43,11 +43,11 @@ function savePref(key, value) {
 }
 
 /* Colour themes, from DaisyUI's palettes plus Raw Muscle (the logo's red,
- * black and white); the CSS for each lives in app.css
- * under [data-theme]. "default" is the app's own look. */
+ * black and white, and the default) and Spicy (the app's original look); the
+ * CSS for each lives in app.css under [data-theme]. */
 const THEMES = [
-  ["default", "Gym"],
   ["rawmuscle", "Raw Muscle"],
+  ["spicy", "Spicy"],
   ["dark", "Dark"],
   ["night", "Night"],
   ["dracula", "Dracula"],
@@ -62,13 +62,13 @@ const THEMES = [
 ];
 
 function applyTheme(name) {
-  const theme = THEMES.some(([id]) => id === name) ? name : "default";
+  const theme = THEMES.some(([id]) => id === name) ? name : "rawmuscle";
   document.documentElement.dataset.theme = theme;
   // Match the phone's status bar to the page.
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta)
     meta.content =
-      theme === "default"
+      theme === "spicy"
         ? "#12151c"
         : getComputedStyle(document.documentElement)
             .getPropertyValue("--bg")
@@ -76,7 +76,10 @@ function applyTheme(name) {
   return theme;
 }
 
-applyTheme(loadPref("theme", "default"));
+/* The original look was saved as "default" before it was renamed Spicy and
+ * Raw Muscle became the default; keep those phones on the colours they chose. */
+if (loadPref("theme", null) === "default") savePref("theme", "spicy");
+applyTheme(loadPref("theme", "rawmuscle"));
 
 function saveOpenGroups() {
   savePref("open-groups", [...state.openGroups]);

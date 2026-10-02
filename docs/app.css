@@ -1,7 +1,42 @@
 /* Raw Muscle Gym Tracker - phone first. Nothing here assumes a mouse or a wide screen. */
 
+/* Raw Muscle is the default look: the logo's red, black and white. Not from
+ * DaisyUI (none is red, black and white). The logo red (#930b24) is too dark
+ * to read as text on black, so the accent is a brighter step of it; completed
+ * sets show white instead of green. */
 :root,
-[data-theme="default"] {
+[data-theme="rawmuscle"] {
+  color-scheme: dark;
+  --bg: #0a0a0a;
+  --surface: #151515;
+  --surface-2: #232323;
+  --text: #f2f2f2;
+  --accent: #d6203c;
+  --on-accent: #fff;
+  --good: #f2f2f2;
+  --on-good: #0a0a0a;
+  --danger: #ff5c5c;
+  --warn: #ffb547;
+  --radius: 14px;
+  --tabbar-h: 58px;
+}
+
+/* -------------------------------------------------------------- themes
+ * Colour palettes borrowed from DaisyUI's themes, picked in Settings and
+ * stored in the localStorage pref `theme`. A theme sets the core colours;
+ * the rule below derives the in-between shades from them. The selectors
+ * aren't tied to :root so the theme swatches in Settings can preview a
+ * palette by carrying data-theme themselves. Spicy, the app's original look,
+ * sets every shade itself. */
+:root,
+[data-theme]:not([data-theme="spicy"]) {
+  --line: color-mix(in srgb, var(--text) 16%, var(--surface));
+  --muted: color-mix(in srgb, var(--text) 62%, var(--bg));
+  --accent-dim: color-mix(in srgb, var(--accent) 55%, var(--bg));
+  --bar: color-mix(in srgb, var(--bg) 92%, transparent);
+  --bar-2: color-mix(in srgb, var(--surface) 96%, transparent);
+}
+[data-theme="spicy"] {
   color-scheme: dark;
   --bg: #0e1117;
   --surface: #171b24;
@@ -18,39 +53,8 @@
   --warn: #ffb547;
   --bar: rgba(14, 17, 23, 0.92);
   --bar-2: rgba(23, 27, 36, 0.96);
-  --radius: 14px;
-  --tabbar-h: 58px;
 }
 
-/* -------------------------------------------------------------- themes
- * Colour palettes borrowed from DaisyUI's themes, picked in Settings and
- * stored in the localStorage pref `theme`. A theme sets the core colours;
- * the rule below derives the in-between shades from them. The selectors
- * aren't tied to :root so the theme swatches in Settings can preview a
- * palette by carrying data-theme themselves. */
-[data-theme]:not([data-theme="default"]) {
-  --line: color-mix(in srgb, var(--text) 16%, var(--surface));
-  --muted: color-mix(in srgb, var(--text) 62%, var(--bg));
-  --accent-dim: color-mix(in srgb, var(--accent) 55%, var(--bg));
-  --bar: color-mix(in srgb, var(--bg) 92%, transparent);
-  --bar-2: color-mix(in srgb, var(--surface) 96%, transparent);
-}
-/* Not from DaisyUI (none is red, black and white): the logo's colours. The
- * logo red (#930b24) is too dark to read as text on black, so the accent is
- * a brighter step of it; completed sets show white instead of green. */
-[data-theme="rawmuscle"] {
-  color-scheme: dark;
-  --bg: #0a0a0a;
-  --surface: #151515;
-  --surface-2: #232323;
-  --text: #f2f2f2;
-  --accent: #d6203c;
-  --on-accent: #fff;
-  --good: #f2f2f2;
-  --on-good: #0a0a0a;
-  --danger: #ff5c5c;
-  --warn: #ffb547;
-}
 [data-theme="dark"] {
   color-scheme: dark;
   --bg: #15191e;

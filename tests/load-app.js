@@ -58,10 +58,10 @@ function fakeIndexedDB(stored) {
   };
 }
 
-/** A fresh copy of the app. `stored` is the IndexedDB contents (a Map). */
-function loadApp(stored = new Map()) {
+/** A fresh copy of the app. `stored` is the IndexedDB contents (a Map);
+ * `prefs` the localStorage contents, as raw strings. */
+function loadApp(stored = new Map(), prefs = new Map()) {
   const dom = inert();
-  const prefs = new Map();
   const shared = []; // files handed to the share sheet
   const context = {
     console,
@@ -82,6 +82,7 @@ function loadApp(stored = new Map()) {
     },
     location: { hostname: "example.test" }, // not localhost: boot stops at the install gate
     matchMedia: () => ({ matches: false }),
+    getComputedStyle: () => ({ getPropertyValue: () => "" }),
     confirm: () => true,
     indexedDB: fakeIndexedDB(stored),
     localStorage: {
@@ -93,6 +94,7 @@ function loadApp(stored = new Map()) {
   vm.runInContext(fs.readFileSync(APP, "utf8"), context, { filename: APP });
   return {
     stored,
+    prefs,
     context,
     shared,
     /** Run an expression inside the app's scope (sees its let/const too). */
