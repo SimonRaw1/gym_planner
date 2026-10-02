@@ -42,10 +42,12 @@ function savePref(key, value) {
   }
 }
 
-/* Colour themes, from DaisyUI's palettes; the CSS for each lives in app.css
+/* Colour themes, from DaisyUI's palettes plus Raw Muscle (the logo's red,
+ * black and white); the CSS for each lives in app.css
  * under [data-theme]. "default" is the app's own look. */
 const THEMES = [
   ["default", "Gym"],
+  ["rawmuscle", "Raw Muscle"],
   ["dark", "Dark"],
   ["night", "Night"],
   ["dracula", "Dracula"],

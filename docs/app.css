@@ -1,4 +1,4 @@
-/* Gym Planner - phone first. Nothing here assumes a mouse or a wide screen. */
+/* Raw Muscle Gym Tracker - phone first. Nothing here assumes a mouse or a wide screen. */
 
 :root,
 [data-theme="default"] {
@@ -34,6 +34,22 @@
   --accent-dim: color-mix(in srgb, var(--accent) 55%, var(--bg));
   --bar: color-mix(in srgb, var(--bg) 92%, transparent);
   --bar-2: color-mix(in srgb, var(--surface) 96%, transparent);
+}
+/* Not from DaisyUI (none is red, black and white): the logo's colours. The
+ * logo red (#930b24) is too dark to read as text on black, so the accent is
+ * a brighter step of it; completed sets show white instead of green. */
+[data-theme="rawmuscle"] {
+  color-scheme: dark;
+  --bg: #0a0a0a;
+  --surface: #151515;
+  --surface-2: #232323;
+  --text: #f2f2f2;
+  --accent: #d6203c;
+  --on-accent: #fff;
+  --good: #f2f2f2;
+  --on-good: #0a0a0a;
+  --danger: #ff5c5c;
+  --warn: #ffb547;
 }
 [data-theme="dark"] {
   color-scheme: dark;
