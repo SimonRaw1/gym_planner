@@ -1162,9 +1162,16 @@ body.gated .tabbar {
 .export-row .btn:first-child {
   flex: 1;
 }
-.export-row .btn:last-child {
-  width: auto;
+.export-row .btn.icon-only {
+  width: 48px;
   flex: none;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+.export-row .icon-only .inline-icon {
+  width: 20px;
+  height: 20px;
 }
 
 /* SweetAlert2 dialogs (docs/vendor/sweetalert2), in the app's colours. Its own

@@ -1446,6 +1446,11 @@ function renderInstallGate() {
        ${matchMedia("(pointer: fine)").matches ? '<p class="muted">On a computer? <a href="desktop/">Build plans here</a> and send them to your phone.</p>' : ""}`;
 }
 
+// Two overlapping pages: copy.
+const COPY_ICON = `<svg class="inline-icon" viewBox="0 0 24 24" fill="none"
+  stroke="currentColor" stroke-width="2" stroke-linecap="round"
+  stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>`;
+
 const SHARE_ICON = `<svg class="inline-icon" viewBox="0 0 24 24" fill="none"
   stroke="currentColor" stroke-width="2" stroke-linecap="round"
   stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4M8 11H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-2"/></svg>`;
@@ -2813,7 +2818,7 @@ const actions = {
     if (!data?.plans.length) return toast("No plans to export");
     openSheet(
       "Export plans",
-      '<p class="muted">Tap one to share its plans file, or <strong>Copy link</strong> to paste a link into a message. Either goes in on the other phone with Plans › Import plans.</p>',
+      '<p class="muted">Tap one to share its plans file, or the copy button to copy a link to paste into a message. Either goes in on the other phone with Plans › Import plans.</p>',
       `<div class="stack tight">${exportButtons(data)}</div>`,
     );
   },
@@ -2912,7 +2917,7 @@ function exportButtons(data) {
       const id = folder ? folder.id : "";
       return `<div class="export-row">
         <button class="btn ${i ? "ghost" : "good"}" data-action="export-plans-go" data-folder="${id}">${folder ? esc(folder.name) : "All plans"} (${count})</button>
-        <button class="btn ghost" data-action="copy-plans-link" data-folder="${id}">Copy link</button>
+        <button class="btn ghost icon-only" data-action="copy-plans-link" data-folder="${id}" aria-label="Copy link" title="Copy link">${COPY_ICON}</button>
       </div>`;
     })
     .join("");
