@@ -42,8 +42,12 @@ body {
   padding: 20px 24px 80px;
   box-sizing: border-box;
 }
+.layout.idle {
+  grid-template-columns: 1fr minmax(220px, 280px);
+}
 @media (max-width: 760px) {
-  .layout {
+  .layout,
+  .layout.idle {
     grid-template-columns: 1fr;
     padding: 16px;
   }
@@ -172,6 +176,9 @@ body {
   border-radius: var(--radius);
   padding: 20px;
   align-self: start;
+}
+.placeholder h2 {
+  font-size: 0.95rem;
 }
 .placeholder p {
   max-width: 60ch;

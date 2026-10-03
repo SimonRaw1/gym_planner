@@ -175,15 +175,17 @@ function placeOptions(current) {
 
 function renderEditor() {
   const plan = planById(state.selected);
+  // With no plan open, the tree takes the width and this note sits small on
+  // the right.
+  $(".layout").classList.toggle("idle", !plan);
   if (!plan) {
     $("#editor").innerHTML = `
       <div class="placeholder">
         <h2>Pick a plan, or make one</h2>
-        <p class="muted">Plans go in weeks, weeks in blocks, and blocks in folders, as on the phone.
-          Duplicate a week to copy all its plans into the next one.</p>
+        <p class="muted">Duplicate a week to copy all its plans into the next one.</p>
         <p class="muted">When you're done: <strong>Export plans file</strong> saves a file to send
-          to your phone, and <strong>Copy link</strong> gives a link to paste into a message
-          (WhatsApp Web, say); tapping it on the phone adds the plans.</p>
+          to your phone, and <strong>Copy link</strong> gives a link to paste into a message;
+          opening the link on the phone adds the plans.</p>
       </div>`;
     return;
   }
