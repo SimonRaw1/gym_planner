@@ -26,7 +26,7 @@ function newUid() {
 
 /* The work in progress. A plan's `place` is "" (no folder), "f:<folder uid>"
  * or "w:<week uid>"; a block's `folder` is a folder uid or null. */
-const empty = () => ({ folders: [], blocks: [], weeks: [], plans: [], selected: null });
+const empty = () => ({ folders: [], blocks: [], weeks: [], plans: [], selected: null, open: [] });
 let state = load();
 
 function load() {
@@ -68,6 +68,21 @@ const seed = (name) =>
 const newItem = () => ({ name: "", muscle_group: "other", equipment: "", sets: 3, reps: 10, rpe: "", rest: 90 });
 
 const planById = (uid) => state.plans.find((p) => p.uid === uid);
+
+/* Folders, blocks and weeks start collapsed; `state.open` holds the uids of
+ * the expanded ones. */
+const isOpen = (uid) => state.open.includes(uid);
+
+/** Expand whatever holds a plan at `place` (and anything in `extra`), so a
+ * plan just made or moved is in view. */
+function reveal(place, ...extra) {
+  const uids = [...extra];
+  const week = place.startsWith("w:") && state.weeks.find((w) => `w:${w.uid}` === place);
+  const block = week && state.blocks.find((b) => b.uid === week.block);
+  if (week) uids.push(week.uid, block?.uid, block?.folder);
+  if (place.startsWith("f:")) uids.push(place.slice(2));
+  uids.filter(Boolean).forEach((uid) => isOpen(uid) || state.open.push(uid));
+}
 const plansAt = (place) => state.plans.filter((p) => p.place === place);
 
 /** "Week 3" after "Week 2"; anything else gets " copy". */
@@ -90,6 +105,14 @@ function render() {
 
 function renderTree() {
   const tools = (...buttons) => `<span class="tools">${buttons.join("")}</span>`;
+  // A folder, block or week title: tap to expand or collapse it.
+  const head = (kind, item, buttons) => `
+      <div class="node ${kind}${isOpen(item.uid) ? " open" : ""}">
+        <button type="button" class="twisty grow" data-act="toggle" data-uid="${item.uid}" aria-expanded="${isOpen(item.uid)}">
+          <span class="chev" aria-hidden="true"></span><span class="grow">${esc(item.name)}</span>
+        </button>
+        ${tools(...buttons)}</div>`;
+  const children = (item, html) => (isOpen(item.uid) ? `<div class="children">${html}</div>` : "");
   const tool = (act, label, data = "") =>
     `<button type="button" class="tool" data-act="${act}" ${data}>${label}</button>`;
 
@@ -100,44 +123,36 @@ function renderTree() {
     </button>`;
 
   const weekHtml = (w) => `
-    <div class="branch">
-      <div class="node week"><span class="grow">${esc(w.name)}</span>
-        ${tools(
-          tool("add-plan", "+ Plan", `data-place="w:${w.uid}"`),
-          tool("dup-week", "Duplicate", `data-uid="${w.uid}"`),
-          tool("rename-week", "Rename", `data-uid="${w.uid}"`),
-          tool("del-week", "&times;", `data-uid="${w.uid}" aria-label="Delete week"`),
-        )}</div>
-      <div class="children">${plansAt(`w:${w.uid}`).map(planRow).join("")}</div>
+    <div class="branch">${head("week", w, [
+      tool("add-plan", "+ Plan", `data-place="w:${w.uid}"`),
+      tool("dup-week", "Duplicate", `data-uid="${w.uid}"`),
+      tool("rename-week", "Rename", `data-uid="${w.uid}"`),
+      tool("del-week", "&times;", `data-uid="${w.uid}" aria-label="Delete week"`),
+    ])}
+      ${children(w, plansAt(`w:${w.uid}`).map(planRow).join("") || '<p class="muted empty-branch">No plans yet.</p>')}
     </div>`;
 
   const blockHtml = (b) => `
-    <div class="branch">
-      <div class="node block"><span class="grow">${esc(b.name)}</span>
-        ${tools(
-          tool("add-week", "+ Week", `data-uid="${b.uid}"`),
-          tool("rename-block", "Rename", `data-uid="${b.uid}"`),
-          tool("del-block", "&times;", `data-uid="${b.uid}" aria-label="Delete block"`),
-        )}</div>
-      <div class="children">${state.weeks
-        .filter((w) => w.block === b.uid)
-        .map(weekHtml)
-        .join("")}</div>
+    <div class="branch">${head("block", b, [
+      tool("add-week", "+ Week", `data-uid="${b.uid}"`),
+      tool("rename-block", "Rename", `data-uid="${b.uid}"`),
+      tool("del-block", "&times;", `data-uid="${b.uid}" aria-label="Delete block"`),
+    ])}
+      ${children(b, state.weeks.filter((w) => w.block === b.uid).map(weekHtml).join("") || '<p class="muted empty-branch">No weeks yet.</p>')}
     </div>`;
 
   const folderHtml = (f) => `
-    <div class="branch">
-      <div class="node folder"><span class="grow">${esc(f.name)}</span>
-        ${tools(
-          tool("add-block", "+ Block", `data-folder="${f.uid}"`),
-          tool("add-plan", "+ Plan", `data-place="f:${f.uid}"`),
-          tool("rename-folder", "Rename", `data-uid="${f.uid}"`),
-          tool("del-folder", "&times;", `data-uid="${f.uid}" aria-label="Delete folder"`),
-        )}</div>
-      <div class="children">
-        ${state.blocks.filter((b) => b.folder === f.uid).map(blockHtml).join("")}
-        ${plansAt(`f:${f.uid}`).map(planRow).join("")}
-      </div>
+    <div class="branch">${head("folder", f, [
+      tool("add-block", "+ Block", `data-folder="${f.uid}"`),
+      tool("add-plan", "+ Plan", `data-place="f:${f.uid}"`),
+      tool("rename-folder", "Rename", `data-uid="${f.uid}"`),
+      tool("del-folder", "&times;", `data-uid="${f.uid}" aria-label="Delete folder"`),
+    ])}
+      ${children(
+        f,
+        state.blocks.filter((b) => b.folder === f.uid).map(blockHtml).join("") +
+          plansAt(`f:${f.uid}`).map(planRow).join("") || '<p class="muted empty-branch">Nothing in this folder yet.</p>',
+      )}
     </div>`;
 
   const html =
@@ -175,18 +190,11 @@ function placeOptions(current) {
 
 function renderEditor() {
   const plan = planById(state.selected);
-  // With no plan open, the tree takes the width and this note sits small on
-  // the right.
+  // With no plan open there's no editor, and the tree takes the width.
   $(".layout").classList.toggle("idle", !plan);
+  $("#editor").hidden = !plan;
   if (!plan) {
-    $("#editor").innerHTML = `
-      <div class="placeholder">
-        <h2>Pick a plan, or make one</h2>
-        <p class="muted">Duplicate a week to copy all its plans into the next one.</p>
-        <p class="muted">When you're done: <strong>Export plans file</strong> saves a file to send
-          to your phone, and <strong>Copy link</strong> gives a link to paste into a message;
-          opening the link on the phone adds the plans.</p>
-      </div>`;
+    $("#editor").innerHTML = "";
     return;
   }
   const rows = plan.items
@@ -241,7 +249,10 @@ $("#editor").addEventListener("input", (ev) => {
   if (field) {
     plan[field] = ev.target.value;
     if (field === "name") renderTree();
-    if (field === "place") renderTree();
+    if (field === "place") {
+      reveal(plan.place); // keep the plan in view where it went
+      renderTree();
+    }
     return save();
   }
   const row = ev.target.closest("tr[data-i]");
@@ -322,26 +333,36 @@ const actions = {
     const name = await ask("Block name", "Block 1");
     if (!name) return;
     const block = { uid: newUid(), name, folder: el.dataset.folder || null };
+    const week = { uid: newUid(), name: "Week 1", block: block.uid };
     state.blocks.push(block);
-    state.weeks.push({ uid: newUid(), name: "Week 1", block: block.uid });
+    state.weeks.push(week);
+    reveal(`w:${week.uid}`);
     render();
   },
   async "add-week"(el) {
     const weeks = state.weeks.filter((w) => w.block === el.dataset.uid);
     const name = await ask("Week name", weeks.length ? nextName(weeks.at(-1).name) : "Week 1");
     if (!name) return;
-    state.weeks.push({ uid: newUid(), name, block: el.dataset.uid });
+    const week = { uid: newUid(), name, block: el.dataset.uid };
+    state.weeks.push(week);
+    reveal(`w:${week.uid}`);
     render();
   },
   "add-plan"(el) {
     const plan = { uid: newUid(), name: "", notes: "", place: el.dataset.place || "", items: [newItem()] };
     state.plans.push(plan);
     state.selected = plan.uid;
+    reveal(plan.place);
     render();
     $("#plan-name").focus();
   },
   select(el) {
     state.selected = el.dataset.uid;
+    render();
+  },
+  toggle(el) {
+    const uid = el.dataset.uid;
+    state.open = isOpen(uid) ? state.open.filter((u) => u !== uid) : [...state.open, uid];
     render();
   },
 

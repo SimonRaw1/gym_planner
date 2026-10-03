@@ -43,7 +43,7 @@ body {
   box-sizing: border-box;
 }
 .layout.idle {
-  grid-template-columns: 1fr minmax(220px, 280px);
+  grid-template-columns: 1fr;
 }
 @media (max-width: 760px) {
   .layout,
@@ -124,6 +124,26 @@ body {
   background: var(--surface-2);
   border-color: var(--accent-dim);
 }
+/* A folder, block or week title collapses and expands its branch. */
+.twisty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 26px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.node.open > .twisty .chev {
+  transform: rotate(45deg);
+}
+.empty-branch {
+  margin: 2px 0 4px 8px;
+}
 .node .count {
   color: var(--muted);
   font-size: 0.75rem;
@@ -176,12 +196,6 @@ body {
   border-radius: var(--radius);
   padding: 20px;
   align-self: start;
-}
-.placeholder h2 {
-  font-size: 0.95rem;
-}
-.placeholder p {
-  max-width: 60ch;
 }
 .editor-grid {
   display: grid;
