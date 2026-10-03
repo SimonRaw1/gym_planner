@@ -94,12 +94,12 @@ test("Add new imports only the plans the phone doesn't have", async () => {
   const b = await phone();
   await addPlan(b, "My own plan");
 
-  assert.deepEqual(await importPlans(b, await exportPlans(a), "add"), { added: 2, skipped: 0 });
+  assert.deepEqual(await importPlans(b, await exportPlans(a), "add"), { added: 2, updated: 0, skipped: 0 });
 
   // Phone A fills in more of the block and exports again.
   await addPlan(a, "Day 1", weeks["Week 2"]);
   await addPlan(a, "Day 3", weeks["Week 1"]);
-  assert.deepEqual(await importPlans(b, await exportPlans(a), "add"), { added: 2, skipped: 2 });
+  assert.deepEqual(await importPlans(b, await exportPlans(a), "add"), { added: 2, updated: 0, skipped: 2 });
   assert.deepEqual(await layout(b), [
     "Block 1 / Week 1 / Day 1",
     "Block 1 / Week 1 / Day 2",
@@ -112,10 +112,10 @@ test("Add new imports only the plans the phone doesn't have", async () => {
   assert.equal(data.groups.filter((g) => g.parent_id != null).length, 2, "no duplicate weeks");
 
   // Importing the same file again changes nothing.
-  assert.deepEqual(await importPlans(b, await exportPlans(a), "add"), { added: 0, skipped: 4 });
+  assert.deepEqual(await importPlans(b, await exportPlans(a), "add"), { added: 0, updated: 0, skipped: 4 });
 });
 
-test("Add new follows a renamed block, week and plan by uid", async () => {
+test("Add new follows a renamed block, week and plan by uid, taking the plan's new name", async () => {
   const a = await phone();
   await addBlock(a, "Block 1", { "Week 1": ["Day 1"] });
   const b = await phone();
@@ -126,8 +126,9 @@ test("Add new follows a renamed block, week and plan by uid", async () => {
     dataCache.plans[0].name = "Heavy day";
     return writeLocalData(dataCache);
   })()`);
-  assert.deepEqual(await importPlans(b, await exportPlans(a), "add"), { added: 0, skipped: 1 });
-  assert.deepEqual(await layout(b), ["Block 1 / Week 1 / Day 1"]);
+  // The plan's new name comes along (an update); blocks and weeks keep theirs.
+  assert.deepEqual(await importPlans(b, await exportPlans(a), "add"), { added: 0, updated: 1, skipped: 0 });
+  assert.deepEqual(await layout(b), ["Block 1 / Week 1 / Heavy day"]);
 });
 
 /** A plans file as exported before uids existed. */
@@ -160,15 +161,15 @@ test("an older file without uids is matched by week and name", async () => {
     ["Day 1", ["Block 1", "Week 2"]],
     ["Mobility", null],
   ]);
-  assert.deepEqual(await importPlans(b, old, "add"), { added: 3, skipped: 0 });
-  assert.deepEqual(await importPlans(b, old, "add"), { added: 0, skipped: 3 });
+  assert.deepEqual(await importPlans(b, old, "add"), { added: 3, updated: 0, skipped: 0 });
+  assert.deepEqual(await importPlans(b, old, "add"), { added: 0, updated: 0, skipped: 3 });
 
   const bigger = oldPlansFile([
     ["Day 1", ["Block 1", "Week 1"]],
     ["Day 2", ["block 1", "week 1"]], // names match whatever the case
     ["Mobility", null],
   ]);
-  assert.deepEqual(await importPlans(b, bigger, "add"), { added: 1, skipped: 2 });
+  assert.deepEqual(await importPlans(b, bigger, "add"), { added: 1, updated: 0, skipped: 2 });
   assert.deepEqual(await layout(b), [
     "Block 1 / Week 1 / Day 1",
     "Block 1 / Week 1 / Day 2",
@@ -193,11 +194,12 @@ test("a file with uids matches plans that came from an older file", async () => 
   });
   await importPlans(b, old, "add");
 
-  assert.deepEqual(await importPlans(b, await exportPlans(a), "add"), { added: 0, skipped: 1 });
+  assert.deepEqual(await importPlans(b, await exportPlans(a), "add"), { added: 0, updated: 0, skipped: 1 });
   // B took A's uids, so the two now stay matched even through a rename.
   await a.run('dataCache.plans[0].name = "Heavy day"; writeLocalData(dataCache)');
-  assert.deepEqual(await importPlans(b, await exportPlans(a), "add"), { added: 0, skipped: 1 });
-  assert.deepEqual(await layout(b), ["Block 1 / Week 1 / Day 1"]);
+  // The plan's new name comes along (an update); blocks and weeks keep theirs.
+  assert.deepEqual(await importPlans(b, await exportPlans(a), "add"), { added: 0, updated: 1, skipped: 0 });
+  assert.deepEqual(await layout(b), ["Block 1 / Week 1 / Heavy day"]);
 });
 
 test("Overwrite replaces every plan, block and week with the file's list", async () => {
@@ -210,7 +212,7 @@ test("Overwrite replaces every plan, block and week with the file's list", async
   await addPlan(b, "Loose plan");
   const started = plain(await post(b, "/sessions", { plan_id: 1 }));
 
-  assert.deepEqual(await importPlans(b, file, "replace"), { added: 2, skipped: 0 });
+  assert.deepEqual(await importPlans(b, file, "replace"), { added: 2, updated: 0, skipped: 0 });
   assert.deepEqual(await layout(b), ["Block 1 / Week 1 / Day 1", "Block 1 / Week 1 / Day 2"]);
   const data = plain(await b.run("localData()"));
   assert.deepEqual(data.groups.map((g) => g.name).sort(), ["Block 1", "Week 1"]);
@@ -228,7 +230,7 @@ test("Overwrite takes an older file without uids too", async () => {
   const b = await phone();
   await addPlan(b, "Day 1");
   const old = oldPlansFile([["Day 1", null], ["Day 2", null]]);
-  assert.deepEqual(await importPlans(b, old, "replace"), { added: 2, skipped: 0 });
+  assert.deepEqual(await importPlans(b, old, "replace"), { added: 2, updated: 0, skipped: 0 });
   assert.deepEqual(await layout(b), ["Day 1", "Day 2"]);
 });
 
@@ -240,7 +242,7 @@ test("the import sheet's dry run leaves the phone alone", async () => {
   const before = plain(await b.run("localData()"));
   b.context.file = await exportPlans(a);
   const counts = plain(b.run("importPlans(structuredClone(dataCache), file)"));
-  assert.deepEqual(counts, { added: 1, skipped: 0 });
+  assert.deepEqual(counts, { added: 1, updated: 0, skipped: 0 });
   assert.deepEqual(plain(await b.run("localData()")), before);
 });
 
@@ -376,8 +378,8 @@ test("importing a folder file recreates the folder, and repeats add nothing", as
   const b = await phone();
   await addPlan(b, "Mine");
 
-  assert.deepEqual(await importPlans(b, file, "add"), { added: 2, skipped: 0 });
-  assert.deepEqual(await importPlans(b, file, "add"), { added: 0, skipped: 2 });
+  assert.deepEqual(await importPlans(b, file, "add"), { added: 2, updated: 0, skipped: 0 });
+  assert.deepEqual(await importPlans(b, file, "add"), { added: 0, updated: 0, skipped: 2 });
   assert.deepEqual(await folderLayout(b), [
     "Mine",
     "Nationals Prep: Openers",
@@ -388,6 +390,7 @@ test("importing a folder file recreates the folder, and repeats add nothing", as
   await put(a, `/folders/${folder.id}`, { name: "Nationals 2027" });
   assert.deepEqual(await importPlans(b, await exportFolder(a, folder.id), "add"), {
     added: 0,
+    updated: 0,
     skipped: 2,
   });
   const data = plain(await b.run("localData()"));
@@ -400,7 +403,7 @@ test("a file from before folders imports outside any folder", async () => {
     ["Openers", null], // same name as the folder's loose plan, but not in it
     ["Day 1", ["Peak", "Week 1"]], // a block named like the folder's, outside it
   ]);
-  assert.deepEqual(await importPlans(b, old, "add"), { added: 2, skipped: 0 });
+  assert.deepEqual(await importPlans(b, old, "add"), { added: 2, updated: 0, skipped: 0 });
   const layout = await folderLayout(b);
   assert.ok(layout.includes("Openers"));
   assert.ok(layout.includes("Nationals Prep: Openers"));
@@ -412,7 +415,7 @@ test("Overwrite with a folder file replaces folders too", async () => {
   const file = await exportFolder(a, folder.id);
   const { app: b } = await phoneWithFolder();
   await post(b, "/folders", { name: "Other folder" });
-  assert.deepEqual(await importPlans(b, file, "replace"), { added: 2, skipped: 0 });
+  assert.deepEqual(await importPlans(b, file, "replace"), { added: 2, updated: 0, skipped: 0 });
   const data = plain(await b.run("localData()"));
   assert.deepEqual(data.folders.map((f) => f.name), ["Nationals Prep"]);
   assert.deepEqual(await folderLayout(b), [
@@ -517,7 +520,7 @@ test("duplicating a folder copies its blocks, weeks and plans with new uids", as
 
   // A file of the original still adds nothing new when imported back; the copy is separate.
   const file = await exportFolder(app, folder.id);
-  assert.deepEqual(await importPlans(app, file, "add"), { added: 0, skipped: 2 });
+  assert.deepEqual(await importPlans(app, file, "add"), { added: 0, updated: 0, skipped: 2 });
   const copyFile = await exportFolder(app, copy.id);
   assert.ok(copyFile.plans.every((p) => !file.plans.some((q) => q.uid === p.uid)));
 });
@@ -606,4 +609,35 @@ test("a plan carries the date its last workout was finished", async () => {
   assert.equal(await completedAt(), null, "in progress isn't completed");
   await post(app, `/sessions/${session.id}/finish`, { notes: "" });
   assert.match(await completedAt(), /^\d{4}-\d{2}-\d{2}/);
+});
+
+test("Add new updates a plan that changed and skips one that didn't", async () => {
+  const a = await phone();
+  await addBlock(a, "Peak", { "Week 1": ["Heavy", "Light"] });
+  const b = await phone();
+  await importPlans(b, await exportPlans(a), "add");
+  // b has done a workout from Heavy: the update must keep that history.
+  const heavyOnB = plain(await b.run("localData()")).plans.find((p) => p.name === "Heavy");
+  await post(b, "/sessions", { plan_id: heavyOnB.id });
+
+  const file = await exportPlans(a);
+  const heavy = file.plans.find((p) => p.name === "Heavy");
+  heavy.notes = "Top single, then back-offs";
+  heavy.items[0].target_reps = 1;
+  heavy.items.push({
+    exercise: { name: "Pause Squat", muscle_group: "legs", equipment: "barbell" },
+    target_sets: 3, target_reps: 3, target_rpe: 7, rest_seconds: 180,
+  });
+  assert.deepEqual(await importPlans(b, file, "add"), { added: 0, updated: 1, skipped: 1 });
+
+  const data = plain(await b.run("localData()"));
+  const updated = data.plans.find((p) => p.name === "Heavy");
+  assert.equal(updated.id, heavyOnB.id, "the same plan, updated in place");
+  assert.equal(updated.notes, "Top single, then back-offs");
+  assert.deepEqual(updated.items.map((it) => it.target_reps), [1, 3]);
+  assert.equal(data.plans.length, 2);
+  assert.equal(data.sessions.filter((s) => s.plan_id === heavyOnB.id).length, 1);
+
+  // Sending the same file again changes nothing.
+  assert.deepEqual(await importPlans(b, file, "add"), { added: 0, updated: 0, skipped: 2 });
 });

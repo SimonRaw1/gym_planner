@@ -2943,13 +2943,18 @@ async function exportPlansFile(data, folderId) {
 /** Ask whether to add or overwrite with plans from a file or link, after a dry
  * run on a copy to say how many are new. */
 async function offerPlansImport(parsed, source) {
-  const { added, skipped } = importPlans(structuredClone(await localData()), parsed);
+  const { added, updated, skipped } = importPlans(structuredClone(await localData()), parsed);
+  const news = [
+    added && `${added} ${added === 1 ? "is" : "are"} new`,
+    updated && `${updated} ${updated === 1 ? "has" : "have"} changed`,
+  ].filter(Boolean);
   openSheet(
     "Import plans",
-    `<p>This ${source} has ${parsed.folder?.name ? `the folder ${esc(String(parsed.folder.name))} with ` : ""}${plural(added + skipped, "plan")}.
-      ${added ? `${added} ${added === 1 ? "is" : "are"} new.` : "You already have all of them."}</p>
-    <p class="muted"><strong>Add new plans</strong> keeps your plans and adds
-      only the ones you don't have, into their folders, blocks and weeks.
+    `<p>This ${source} has ${parsed.folder?.name ? `the folder ${esc(String(parsed.folder.name))} with ` : ""}${plural(added + updated + skipped, "plan")}.
+      ${news.length ? `${news.join(" and ")}.` : "You already have all of them, unchanged."}</p>
+    <p class="muted"><strong>Add new plans</strong> keeps your plans, adds the
+      ones you don't have into their folders, blocks and weeks, and updates
+      the ones that have changed.
       <strong>Overwrite all plans</strong> deletes your plans, folders, blocks
       and weeks and uses the ${source}'s list instead. Logged workouts are kept.</p>`,
     `<div class="stack tight">
@@ -2965,16 +2970,20 @@ async function finishPlansImport(mode) {
   const parsed = state.pendingPlans;
   if (!parsed) return closeSheet();
   const data = await localData();
-  const { added, skipped } = importPlans(data, parsed, mode);
+  const { added, updated, skipped } = importPlans(data, parsed, mode);
   await writeLocalData(data);
   closeSheet();
+  const done = [
+    added && `added ${plural(added, "new plan")}`,
+    updated && `updated ${updated}`,
+    skipped && `${skipped} already up to date`,
+  ].filter(Boolean);
   toast(
     mode === "replace"
       ? `Plans replaced with ${plural(added, "plan")}`
-      : added
-        ? `Added ${plural(added, "new plan")}` +
-          (skipped ? `, ${skipped} already here` : "")
-        : "No new plans; you have them all",
+      : added || updated
+        ? done.join(", ").replace(/^./, (c) => c.toUpperCase())
+        : "Nothing new; you have them all",
   );
   refresh();
 }
@@ -3216,7 +3225,8 @@ function importedPlansList(imported) {
  *
  * mode "add" keeps every plan on the phone and adds only the plans it doesn't
  * have yet: a plan is already here when its uid matches, or (for files from
- * before uids) when its week already has a plan of that name. Folders, blocks
+ * before uids) when its week already has a plan of that name. A plan already
+ * here is skipped when identical, else updated to the file's version. Folders, blocks
  * and weeks are matched the same way, by uid, then by name. A block or folder
  * already on the phone stays where it is here, even if the file has it
  * somewhere else. Files from before folders put everything outside them.
@@ -3224,7 +3234,7 @@ function importedPlansList(imported) {
  * list as it is. Logged workouts are kept either way.
  *
  * Exercises are matched by name and created when missing.
- * Returns { added, skipped }. */
+ * Returns { added, updated, skipped }. */
 function importPlans(data, imported, mode = "add") {
   const plans = importedPlansList(imported);
   ensureUids(data);
@@ -3317,10 +3327,11 @@ function importPlans(data, imported, mode = "add") {
     (p.group_id ?? null) === groupId &&
     (groupId != null || (p.folder_id ?? null) === folderId);
   // Names only need to be unique within a week: every week can have "Day 1".
-  const freeName = (name, groupId, folderId) => {
+  // `self` is a plan being renamed, whose own name doesn't count.
+  const freeName = (name, groupId, folderId, self = null) => {
     const taken = new Set(
       data.plans
-        .filter((p) => sameSpot(p, groupId, folderId))
+        .filter((p) => p !== self && sameSpot(p, groupId, folderId))
         .map((p) => p.name.toLowerCase()),
     );
     if (!taken.has(name.toLowerCase())) return name;
@@ -3329,24 +3340,7 @@ function importPlans(data, imported, mode = "add") {
     return `${name} (${n})`;
   };
 
-  let added = 0;
-  plans.forEach((plan) => {
-    const name = String(plan.name || "").trim() || "Imported plan";
-    const uid = typeof plan.uid === "string" && plan.uid ? plan.uid : null;
-    if (uid && existingPlans.some((p) => p.uid === uid)) return;
-    const folderId = importedFolderId(plan.folder, plan.folder_uid);
-    const groupId = importedWeekId(plan.group, plan.group_uids, folderId);
-    // A plan in a week is in its block's folder; only loose plans keep one.
-    const ownFolder = groupId == null ? folderId : null;
-    const sameName = existingPlans.find(
-      (p) =>
-        sameSpot(p, groupId, ownFolder) &&
-        p.name.toLowerCase() === name.toLowerCase(),
-    );
-    if (sameName) {
-      if (uid && !uidsInUse().has(uid)) sameName.uid = uid;
-      return;
-    }
+  const itemsOf = (plan) => {
     const items = [];
     (plan.items || []).forEach((item) => {
       const id = exerciseId(item.exercise);
@@ -3359,6 +3353,56 @@ function importPlans(data, imported, mode = "add") {
         rest_seconds: Number(item.rest_seconds) || 0,
       });
     });
+    return items;
+  };
+  const sameItems = (a, b) => {
+    const key = (items) =>
+      JSON.stringify(
+        items.map((it) => [it.exercise_id, it.target_sets, it.target_reps, it.target_rpe ?? null, it.rest_seconds]),
+      );
+    return key(a) === key(b);
+  };
+
+  /** The file's version of a plan the phone already has: identical is
+   * skipped; otherwise the phone's plan takes the file's name, notes and
+   * exercises, and stays where it is (with its workout history). */
+  const update = (existing, plan, name) => {
+    const items = itemsOf(plan);
+    const notes = plan.notes || "";
+    if (existing.name === name && (existing.notes || "") === notes && sameItems(existing.items, items))
+      return false;
+    if (existing.name !== name)
+      existing.name = freeName(name, existing.group_id ?? null, existing.folder_id ?? null, existing);
+    existing.notes = notes;
+    existing.items = items;
+    return true;
+  };
+
+  let added = 0;
+  let updated = 0;
+  plans.forEach((plan) => {
+    const name = String(plan.name || "").trim() || "Imported plan";
+    const uid = typeof plan.uid === "string" && plan.uid ? plan.uid : null;
+    const sameUid = uid && existingPlans.find((p) => p.uid === uid);
+    if (sameUid) {
+      if (update(sameUid, plan, name)) updated++;
+      return;
+    }
+    const folderId = importedFolderId(plan.folder, plan.folder_uid);
+    const groupId = importedWeekId(plan.group, plan.group_uids, folderId);
+    // A plan in a week is in its block's folder; only loose plans keep one.
+    const ownFolder = groupId == null ? folderId : null;
+    const sameName = existingPlans.find(
+      (p) =>
+        sameSpot(p, groupId, ownFolder) &&
+        p.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (sameName) {
+      if (uid && !uidsInUse().has(uid)) sameName.uid = uid;
+      if (update(sameName, plan, sameName.name)) updated++;
+      return;
+    }
+    const items = itemsOf(plan);
     data.plans.push({
       id: data.nextIds.plan++,
       uid: takeUid(uid),
@@ -3371,7 +3415,7 @@ function importPlans(data, imported, mode = "add") {
     });
     added++;
   });
-  return { added, skipped: plans.length - added };
+  return { added, updated, skipped: plans.length - added - updated };
 }
 
 /** Check a parsed backup and rebuild it as a clean data object. */
