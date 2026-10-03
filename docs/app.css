@@ -430,6 +430,10 @@ body::before {
 .group.folder .group .group .card {
   background: var(--surface-2);
 }
+/* A plan in a week that has been done. */
+.plan-card.completed {
+  border-color: var(--accent);
+}
 /* A plan card's title drops down to list its exercises. */
 .plan-card > details > summary {
   list-style: none;

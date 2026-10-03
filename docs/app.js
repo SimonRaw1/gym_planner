@@ -374,10 +374,14 @@ function planSummary(data, plan) {
   const last = data.sessions
     .filter((session) => session.plan_id === plan.id)
     .sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
+  const finished = data.sessions
+    .filter((session) => session.plan_id === plan.id && session.finished_at)
+    .sort((a, b) => b.finished_at.localeCompare(a.finished_at))[0];
   return {
     ...plan,
     exercise_count: plan.items.length,
     last_done: last?.started_at || null,
+    completed_at: finished?.finished_at || null,
   };
 }
 
@@ -1722,8 +1726,19 @@ function renderPlans() {
 }
 
 /** A plan card: its title drops down to show the exercises (open ones are kept
- * in openGroups as "p<id>"); Edit, Delete and Start stay in view. */
+ * in openGroups as "p<id>"); Edit, Delete and Start stay in view.
+ *
+ * A plan in a week is a one-off: once a workout from it is finished it shows
+ * "Completed <date>" in the accent colour, and Copy (to do it again under a
+ * new name) takes the place of Edit and Start. */
 function planCardHtml(p) {
+  const completed = p.group_id != null && p.completed_at;
+  const count = `${p.exercise_count} exercise${p.exercise_count === 1 ? "" : "s"}`;
+  const meta = completed
+    ? `${count}<br>Completed ${esc(dayLabel(p.completed_at).replace(/^(Today|Yesterday)$/, (d) => d.toLowerCase()))}`
+    : p.group_id == null && p.last_done
+      ? `${count} &middot; last ${esc(dayLabel(p.last_done))}`
+      : count;
   const exercises = p.items
     .map((it) => {
       const name = state.exercises.find((e) => e.id === it.exercise_id)?.name || "Unknown exercise";
@@ -1734,26 +1749,22 @@ function planCardHtml(p) {
     })
     .join("");
   return `
-        <div class="card plan-card" data-move="plan:${p.id}" data-order="plan:${p.id}">
+        <div class="card plan-card${completed ? " completed" : ""}" data-move="plan:${p.id}" data-order="plan:${p.id}">
           <details data-plan="${p.id}"${state.openGroups.has(`p${p.id}`) ? " open" : ""}>
             <summary>
               <span class="chev" aria-hidden="true"></span>
               <div class="grow">
                 <h2>${esc(p.name)}</h2>
-                <span class="muted">${p.exercise_count} exercise${p.exercise_count === 1 ? "" : "s"}${
-                  p.last_done
-                    ? ` &middot; last ${esc(dayLabel(p.last_done))}`
-                    : ""
-                }</span>
+                <span class="muted">${meta}</span>
               </div>
             </summary>
             ${exercises ? `<ol class="plan-exercises">${exercises}</ol>` : '<p class="muted">No exercises yet.</p>'}
           </details>
           ${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}
           <div class="row" style="margin-top:12px">
-            <button class="btn small ghost" data-action="edit-plan" data-id="${p.id}">Edit</button>
+            ${completed ? "" : `<button class="btn small ghost" data-action="edit-plan" data-id="${p.id}">Edit</button>`}
             <button class="btn small danger" data-action="del-plan" data-id="${p.id}">Delete</button>
-            <button class="btn small ghost" style="margin-left:auto" data-action="start-plan" data-id="${p.id}">Start</button>
+            <button class="btn small ghost" style="margin-left:auto" data-action="${completed ? "copy-plan" : "start-plan"}" data-id="${p.id}">${completed ? "Copy" : "Start"}</button>
           </div>
         </div>`;
 }
@@ -2596,6 +2607,52 @@ const actions = {
 
   async "edit-plan"(el) {
     openPlanEditor(await api(`/plans/${el.dataset.id}`));
+  },
+
+  // A copy to do a completed plan again: same exercises, a new name, and by
+  // default the same week.
+  "copy-plan"(el) {
+    const plan = state.plans.find((p) => p.id === Number(el.dataset.id));
+    if (!plan) return;
+    openSheet(
+      "Copy plan",
+      `<div class="stack">
+        <div><label for="copy-name">Name</label>
+          <input id="copy-name" value="${esc(plan.name)}" maxlength="80"
+            enterkeyhint="done" data-enter="copy-plan-save"></div>
+        ${placeSelectHtml(plan.group_id, plan.folder_id)}
+      </div>`,
+      `<button class="btn good" data-action="copy-plan-save" data-id="${plan.id}">Make copy</button>`,
+    );
+    $("#copy-name").select();
+  },
+
+  async "copy-plan-save"() {
+    const id = Number($('#sheet-foot [data-action="copy-plan-save"]').dataset.id);
+    const plan = await api(`/plans/${id}`);
+    const name = $("#copy-name").value.trim();
+    if (!name) return toast("Give the plan a name");
+    const place = $("#draft-group")?.value || "";
+    const where = Number(place.slice(1));
+    await api("/plans", {
+      method: "POST",
+      body: {
+        name,
+        notes: plan.notes,
+        group_id: place[0] === "w" ? where : null,
+        folder_id: place[0] === "f" ? where : null,
+        items: plan.items.map((it) => ({
+          exercise_id: it.exercise_id,
+          target_sets: it.target_sets,
+          target_reps: it.target_reps,
+          target_rpe: it.target_rpe,
+          rest_seconds: it.rest_seconds,
+        })),
+      },
+    });
+    closeSheet();
+    toast(`${name} added`);
+    refresh();
   },
 
   async "del-plan"(el) {

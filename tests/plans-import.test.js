@@ -596,3 +596,14 @@ test("plans from a link opened before installing wait for the app", async () => 
   assert.equal(plain(await friend.run("localData()")).plans.length, 4);
   assert.equal(await friend.run('loadPref("pending-plans", null)'), null, "offered once");
 });
+
+test("a plan carries the date its last workout was finished", async () => {
+  const app = await phone();
+  await addBlock(app, "Peak", { "Week 1": ["Heavy"] });
+  const plan = plain(await app.run('api("/plans")'))[0];
+  const completedAt = async () => plain(await app.run('api("/plans")'))[0].completed_at;
+  const session = plain(await post(app, "/sessions", { plan_id: plan.id }));
+  assert.equal(await completedAt(), null, "in progress isn't completed");
+  await post(app, `/sessions/${session.id}/finish`, { notes: "" });
+  assert.match(await completedAt(), /^\d{4}-\d{2}-\d{2}/);
+});
