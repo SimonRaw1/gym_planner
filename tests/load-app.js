@@ -64,6 +64,7 @@ function fakeIndexedDB(stored) {
 function loadApp(stored = new Map(), prefs = new Map()) {
   const dom = inert();
   const shared = []; // files handed to the share sheet
+  const copied = []; // text put on the clipboard
   const context = {
     console,
     setTimeout,
@@ -87,6 +88,7 @@ function loadApp(stored = new Map(), prefs = new Map()) {
       standalone: false,
       canShare: () => true,
       share: async ({ files }) => void shared.push(...files),
+      clipboard: { writeText: async (text) => void copied.push(text) },
     },
     // Not localhost: boot stops at the install gate.
     location: { hostname: "example.test", href: "https://example.test/gym_planner/", hash: "" },
@@ -107,6 +109,7 @@ function loadApp(stored = new Map(), prefs = new Map()) {
     prefs,
     context,
     shared,
+    copied,
     /** Run an expression inside the app's scope (sees its let/const too). */
     run: (code) => vm.runInContext(code, context),
     /** Forget the in-memory copy, as a reload would. */

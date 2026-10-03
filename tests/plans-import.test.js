@@ -363,18 +363,14 @@ test("export can take just one folder", async () => {
   assert.equal(all.plans.find((p) => p.name === "Mobility").folder, null);
 });
 
-test("Export plans asks which folder only when there are folders", async () => {
-  const plainPhone = await phone();
-  await addPlan(plainPhone, "Legs");
-  await plainPhone.run('actions["export-plans"]()'); // shares straight away
-  assert.equal(plainPhone.shared.length, 1);
-  assert.match(plainPhone.shared[0].name, /\.txt$/);
-
+test("Export plans offers a file or a link for all plans and each folder", async () => {
   const { app } = await phoneWithFolder();
   await app.run('actions["export-plans"]()');
-  assert.equal(app.shared.length, 0, "the folder sheet opens instead");
+  assert.equal(app.shared.length + app.copied.length, 0, "nothing until a choice is tapped");
+  app.context.el = { dataset: { folder: "" } };
+  await app.run('actions["copy-plans-link"](el)');
+  assert.match(app.copied[0], /^https:\/\/example\.test\/gym_planner\/#plans=[\w-]+$/);
 });
-
 test("importing a folder file recreates the folder, and repeats add nothing", async () => {
   const { app: a, folder } = await phoneWithFolder();
   const file = await exportFolder(a, folder.id);
@@ -542,6 +538,19 @@ async function addFromLink(app, text) {
   await app.run("unpackPlans(packedFromText(pasted)).then((p) => offerPlansImport(p, 'link'))");
   await app.run('actions["import-plans-add"]()');
 }
+
+test("Copy link and a desktop-made link both bring plans into another phone", async () => {
+  const { app, folder } = await phoneWithFolder();
+  await app.run("localData()");
+  app.context.el = { dataset: { folder: String(folder.id) } };
+  await app.run('actions["copy-plans-link"](el)');
+  const friend = await phone();
+  await addFromLink(friend, `Here you go: ${app.copied.at(-1)}`);
+  assert.deepEqual(await folderLayout(friend), [
+    "Nationals Prep: Openers",
+    "Nationals Prep: Peak / Week 1 / Heavy singles",
+  ]);
+});
 
 test("plans travel as a link: a folder, its blocks and weeks, into another phone", async () => {
   const { app, folder } = await phoneWithFolder();

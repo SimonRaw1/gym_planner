@@ -1153,3 +1153,16 @@ body.gated .tabbar {
 .install-gate a {
   color: var(--accent);
 }
+
+/* Export plans: share a scope's file, or copy its link. */
+.export-row {
+  display: flex;
+  gap: 8px;
+}
+.export-row .btn:first-child {
+  flex: 1;
+}
+.export-row .btn:last-child {
+  width: auto;
+  flex: none;
+}

@@ -2783,19 +2783,30 @@ const actions = {
     $("#import-file").click();
   },
 
-  // A shared file (.txt, which Chrome allows; the import reads the JSON
-  // inside). With folders, a sheet asks which first: the tap on it starts the
-  // share, which browsers only allow right after a tap.
+  // Every plan or one folder's, as a shared file (.txt, which Chrome allows;
+  // the import reads the JSON inside) or a copied link. The tap on the sheet
+  // starts the share, which browsers only allow right after a tap.
   "export-plans"() {
     const data = dataCache;
     if (!data?.plans.length) return toast("No plans to export");
-    const scopes = exportScopes(data);
-    if (scopes.length === 1) return exportPlansFile(data, null);
     openSheet(
       "Export plans",
-      '<p class="muted">Export every plan, or just one folder.</p>',
-      `<div class="stack tight">${exportButtons(data, "export-plans-go")}</div>`,
+      '<p class="muted">Tap one to share its plans file, or <strong>Copy link</strong> to paste a link into a message. Either goes in on the other phone with Plans › Import plans.</p>',
+      `<div class="stack tight">${exportButtons(data)}</div>`,
     );
+  },
+
+  "copy-plans-link"(el) {
+    const data = dataCache;
+    if (!data) return closeSheet();
+    const folder = data.folders.find((f) => f.id === Number(el.dataset.folder));
+    ensureUids(data);
+    const link = plansLink(plansToExport(data, new Date().toISOString(), folder ? folder.id : null));
+    closeSheet();
+    return copyText(link).then(async () => {
+      await writeLocalData(data); // keeps the uids the link was made with
+      toast("Link copied; paste it into a message");
+    });
   },
 
   async "export-plans-go"(el) {
@@ -2871,12 +2882,16 @@ function exportScopes(data) {
   return [{ folder: null, count: data.plans.length }, ...folders];
 }
 
-function exportButtons(data, action) {
+/** A row per scope: share its file, or copy its link. */
+function exportButtons(data) {
   return exportScopes(data)
-    .map(
-      ({ folder, count }, i) =>
-        `<button class="btn ${i ? "ghost" : "good"}" data-action="${action}" data-folder="${folder ? folder.id : ""}">${folder ? esc(folder.name) : "All plans"} (${count})</button>`,
-    )
+    .map(({ folder, count }, i) => {
+      const id = folder ? folder.id : "";
+      return `<div class="export-row">
+        <button class="btn ${i ? "ghost" : "good"}" data-action="export-plans-go" data-folder="${id}">${folder ? esc(folder.name) : "All plans"} (${count})</button>
+        <button class="btn ghost" data-action="copy-plans-link" data-folder="${id}">Copy link</button>
+      </div>`;
+    })
     .join("");
 }
 
@@ -3003,8 +3018,8 @@ async function shareJson(name, json) {
 
 // ------------------------------------------------------------ plans links
 
-/* Plans can travel as a link (the desktop plan builder's Copy link, and links
- * the phone used to send): the plans export, compressed into the part after
+/* Plans can travel as a link (Copy link in Export plans, here or in the
+ * desktop plan builder): the plans export, compressed into the part after
  * "#", which browsers never send to the server. Opening it shows the Import
  * plans sheet. A link that opens in the browser rather than the installed app
  * (or before installing) waits in localStorage ("pending-plans") until the app
@@ -3013,6 +3028,28 @@ async function shareJson(name, json) {
  * Plans › Import plans in the app. */
 
 const LINK_KEY = "#plans=";
+
+/** The link for a plans export (a promise). */
+async function plansLink(exported) {
+  const bytes = new TextEncoder().encode(JSON.stringify(exported));
+  const zipped = await new Response(
+    new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw")),
+  ).arrayBuffer();
+  let bin = "";
+  new Uint8Array(zipped).forEach((b) => (bin += String.fromCharCode(b)));
+  return linkFor(btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""));
+}
+
+/** Copy text that is still being made (a promise). Safari only lets a page
+ * copy straight after a tap, so the promise goes to the clipboard as is where
+ * it can; elsewhere it's awaited, which a tap a moment ago still covers. */
+async function copyText(promise) {
+  if (globalThis.ClipboardItem && navigator.clipboard.write) {
+    const blob = promise.then((text) => new Blob([text], { type: "text/plain" }));
+    return navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]);
+  }
+  return navigator.clipboard.writeText(await promise);
+}
 
 /** The link for packed plans (for Copy plans on an iPhone's install page). */
 function linkFor(packed) {
