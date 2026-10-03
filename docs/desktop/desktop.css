@@ -216,19 +216,15 @@ body {
 .items td {
   padding: 3px 4px;
 }
-.items input,
-.items select {
+.items input {
   min-height: 38px;
   padding: 7px 9px;
 }
 .items td:nth-child(2) {
-  width: 34%;
+  width: 46%;
 }
-.items td:nth-child(n + 4):nth-child(-n + 7) {
-  width: 9%;
-}
-.items select[disabled] {
-  opacity: 0.6;
+.items td:nth-child(n + 3):nth-child(-n + 6) {
+  width: 10%;
 }
 .items .num {
   color: var(--muted);

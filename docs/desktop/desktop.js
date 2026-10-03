@@ -8,7 +8,6 @@
  * blocks, weeks and plans by uid on a later import. */
 
 const STORE = "desktop-plans";
-const MUSCLE_GROUPS = ["chest", "back", "legs", "shoulders", "arms", "core", "cardio", "other"];
 const LINK_KEY = "#plans=";
 
 const $ = (sel) => document.querySelector(sel);
@@ -65,7 +64,7 @@ function toast(text) {
 const seed = (name) =>
   SEED_EXERCISES.find(([n]) => n.toLowerCase() === String(name).trim().toLowerCase());
 
-const newItem = () => ({ name: "", muscle_group: "other", equipment: "", sets: 3, reps: 10, rpe: "", rest: 90 });
+const newItem = () => ({ name: "", sets: 3, reps: 10, rpe: "", rest: 90 });
 
 const planById = (uid) => state.plans.find((p) => p.uid === uid);
 
@@ -199,14 +198,10 @@ function renderEditor() {
   }
   const rows = plan.items
     .map((it, i) => {
-      const known = seed(it.name);
       return `
       <tr data-i="${i}">
         <td class="num">${i + 1}</td>
         <td><input data-f="name" list="exercise-names" value="${esc(it.name)}" placeholder="Exercise"></td>
-        <td><select data-f="muscle_group"${known ? " disabled" : ""}>${MUSCLE_GROUPS.map(
-          (g) => `<option${g === (known ? known[1] : it.muscle_group) ? " selected" : ""}>${g}</option>`,
-        ).join("")}</select></td>
         <td><input data-f="sets" type="number" min="0" value="${esc(it.sets)}"></td>
         <td><input data-f="reps" type="number" min="0" value="${esc(it.reps)}"></td>
         <td><input data-f="rpe" type="number" min="1" max="10" step="0.5" value="${esc(it.rpe)}" placeholder="–"></td>
@@ -229,8 +224,8 @@ function renderEditor() {
     <div><label for="plan-notes">Notes</label>
       <input id="plan-notes" data-plan="notes" value="${esc(plan.notes)}" placeholder="optional"></div>
     <table class="items">
-      <thead><tr><th></th><th>Exercise</th><th>Muscle group</th><th>Sets</th><th>Reps</th><th>RPE</th><th>Rest (s)</th><th></th></tr></thead>
-      <tbody>${rows || '<tr><td></td><td colspan="7" class="muted">No exercises yet.</td></tr>'}</tbody>
+      <thead><tr><th></th><th>Exercise</th><th>Sets</th><th>Reps</th><th>RPE</th><th>Rest (s)</th><th></th></tr></thead>
+      <tbody>${rows || '<tr><td></td><td colspan="6" class="muted">No exercises yet.</td></tr>'}</tbody>
     </table>
     <div class="editor-foot">
       <button class="btn small" data-act="item-add">+ Add exercise</button>
@@ -260,20 +255,7 @@ $("#editor").addEventListener("input", (ev) => {
   if (!row || !f) return;
   const item = plan.items[Number(row.dataset.i)];
   item[f] = ev.target.value;
-  if (f === "name") {
-    // A starter exercise brings its muscle group; anything else is picked.
-    const known = seed(item.name);
-    const group = row.querySelector('[data-f="muscle_group"]');
-    group.disabled = !!known;
-    if (known) {
-      [, item.muscle_group, item.equipment] = known;
-      group.value = known[1];
-    } else {
-      item.equipment = "";
-      item.muscle_group = group.value;
-    }
-    renderTree(); // the exercise count
-  }
+  if (f === "name") renderTree(); // the exercise count
   save();
 });
 $("#editor").addEventListener("change", (ev) => {
@@ -536,8 +518,9 @@ function plansFile() {
             return {
               exercise: {
                 name: known ? known[0] : it.name.trim(),
-                muscle_group: known ? known[1] : it.muscle_group,
-                equipment: known ? known[2] : it.equipment,
+                // Kept from an opened file; new exercises go in as "other".
+                muscle_group: known ? known[1] : it.muscle_group || "other",
+                equipment: known ? known[2] : it.equipment || "",
               },
               target_sets: Math.max(0, Math.round(toNumber(it.sets, 0))),
               target_reps: Math.max(0, Math.round(toNumber(it.reps, 0))),
