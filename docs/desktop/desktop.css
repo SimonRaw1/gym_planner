@@ -34,7 +34,7 @@ body {
 .layout {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(280px, 360px) 1fr;
+  grid-template-columns: minmax(300px, 430px) 1fr;
   gap: 20px;
   width: 100%;
   max-width: 1280px;
