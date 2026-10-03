@@ -94,7 +94,8 @@ function loadApp(stored = new Map(), prefs = new Map()) {
     location: { hostname: "example.test", href: "https://example.test/gym_planner/", hash: "" },
     matchMedia: () => ({ matches: false }),
     getComputedStyle: () => ({ getPropertyValue: () => "" }),
-    confirm: () => true,
+    // SweetAlert2: every dialog is answered yes.
+    Swal: { fire: async () => ({ isConfirmed: true }) },
     indexedDB: fakeIndexedDB(stored),
     localStorage: {
       getItem: (k) => (prefs.has(k) ? prefs.get(k) : null),

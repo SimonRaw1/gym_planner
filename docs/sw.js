@@ -5,11 +5,12 @@
  * new files and the one after that runs them.
  */
 
-const CACHE = "gym-planner-v53";
+const CACHE = "gym-planner-v54";
 const SHELL = [
   "./",
   "index.html",
   "app.css",
+  "vendor/sweetalert2/sweetalert2.all.min.js",
   "exercises.js",
   "app.js",
   "manifest.webmanifest",

@@ -1166,3 +1166,55 @@ body.gated .tabbar {
   width: auto;
   flex: none;
 }
+
+/* SweetAlert2 dialogs (docs/vendor/sweetalert2), in the app's colours. Its own
+ * CSS is injected after this file, so these use two classes to win. */
+.swal2-container.swal2-backdrop-show {
+  background: rgba(0, 0, 0, 0.6);
+}
+.swal2-container {
+  z-index: 60; /* above the bottom sheet */
+}
+.swal2-popup.swal-app {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 18px 18px;
+}
+.swal-app .swal2-title {
+  color: var(--text);
+  font-size: 1.1rem;
+  padding: 0;
+}
+.swal-app .swal2-html-container {
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1.45;
+  margin: 0;
+  padding: 4px 0 0;
+}
+.swal-app .swal2-input {
+  width: 100%;
+  margin: 14px 0 0;
+  box-sizing: border-box;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: none;
+}
+.swal-app .swal2-input:focus {
+  outline: 2px solid var(--accent-dim);
+  box-shadow: none;
+}
+.swal-app .swal2-actions {
+  width: 100%;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin: 18px 0 0;
+}
+.swal-app .swal2-actions .btn {
+  flex: 1;
+  margin: 0;
+}

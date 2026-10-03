@@ -16,6 +16,7 @@ stays on their own phone, with no accounts.
 ## Architecture
 
 - docs/index.html: single-page UI shell
+- docs/vendor/sweetalert2/: SweetAlert2 (MIT), kept locally for the dialogs
 - docs/exercises.js: SEED_EXERCISES, the starter exercise list, shared by both pages
 - docs/app.js: client state, rendering, and the IndexedDB data layer (the `api()` function emulates the old REST routes locally)
 - docs/app.css: phone-first styling
@@ -30,6 +31,8 @@ stays on their own phone, with no accounts.
 ## Conventions
 
 - Keep the app dependency-free and fully offline. No CDNs, no network calls.
+  The one library is SweetAlert2 (dialogs), saved in docs/vendor/sweetalert2/
+  and cached by sw.js; use ask() in app.js rather than confirm()/prompt().
 - Use relative URLs everywhere; the site is served under /gym_planner/.
 - Bump CACHE in docs/sw.js whenever a shell file changes.
 - Data is one JSON object in IndexedDB (version, nextIds, exercises, plans, sessions, last_export). Keep changes backward compatible with existing backups, or bump version and migrate in both localData() and backupToData(). Add a sample of the old shape to tests/backup.test.js when you do.

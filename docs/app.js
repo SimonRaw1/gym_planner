@@ -109,6 +109,27 @@ const without = (ids, id) => ids.filter((x) => x !== id);
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+/** Ask before something that can't be undone, in a SweetAlert2 dialog
+ * (docs/vendor/sweetalert2) dressed in the app's colours. `yes` labels the
+ * confirm button; resolves true when it's tapped. */
+async function ask(text, yes = "Delete") {
+  const { isConfirmed } = await Swal.fire({
+    text,
+    showCancelButton: true,
+    confirmButtonText: yes,
+    cancelButtonText: "Cancel",
+    reverseButtons: true,
+    focusCancel: true,
+    buttonsStyling: false,
+    customClass: {
+      popup: "swal-app",
+      confirmButton: "btn danger",
+      cancelButton: "btn ghost",
+    },
+  });
+  return isConfirmed;
+}
+
 // --------------------------------------------------------------- utilities
 
 // SEED_EXERCISES, the starter exercise list, is in exercises.js (shared with
@@ -1006,9 +1027,10 @@ const dragConfig = {
       ).length;
       if (
         logged &&
-        !confirm(
+        !(await ask(
           `Remove ${item.name} and its ${logged} logged set${logged === 1 ? "" : "s"}?`,
-        )
+          "Remove",
+        ))
       )
         return;
       state.session = await api(
@@ -2432,7 +2454,7 @@ const actions = {
   },
 
   async discard() {
-    if (!confirm("Discard this session and everything logged in it?")) return;
+    if (!(await ask("Discard this session and everything logged in it?", "Discard"))) return;
     await api(`/sessions/${state.session.id}`, { method: "DELETE" });
     state.session = null;
     closeSession();
@@ -2506,9 +2528,9 @@ const actions = {
     const folder = state.folders.find((f) => f.id === Number(el.dataset.id));
     if (!folder) return;
     if (
-      !confirm(
+      !(await ask(
         `Delete the folder ${folder.name}? Its blocks and plans are kept, outside any folder.`,
-      )
+      ))
     )
       return;
     await api(`/folders/${folder.id}`, { method: "DELETE" });
@@ -2577,7 +2599,7 @@ const actions = {
       group.parent_id == null && weeks
         ? `${group.name} and its ${plural(weeks, "week")}`
         : group.name;
-    if (!confirm(`Delete ${what}? Its plans are kept under Other plans.`))
+    if (!(await ask(`Delete ${what}? Its plans are kept under Other plans.`)))
       return;
     await api(`/groups/${group.id}`, { method: "DELETE" });
     refresh();
@@ -2634,7 +2656,7 @@ const actions = {
   },
 
   async "del-plan"(el) {
-    if (!confirm("Delete this plan? Logged workouts are kept.")) return;
+    if (!(await ask("Delete this plan? Logged workouts are kept."))) return;
     await api(`/plans/${el.dataset.id}`, { method: "DELETE" });
     refresh();
   },
@@ -2753,7 +2775,7 @@ const actions = {
   },
 
   async "del-session"(el) {
-    if (!confirm("Delete this workout for good?")) return;
+    if (!(await ask("Delete this workout for good?"))) return;
     await api(`/sessions/${el.dataset.id}`, { method: "DELETE" });
     if (state.session?.id === Number(el.dataset.id)) {
       // Deleted the workout still running: stop keeping the screen on.
@@ -2856,9 +2878,10 @@ const actions = {
     const count = state.plans.length;
     if (
       count &&
-      !confirm(
+      !(await ask(
         `Delete all ${plural(count, "plan")}, folders and blocks on this phone and use the file's list instead? Logged workouts are kept.`,
-      )
+        "Overwrite",
+      ))
     )
       return;
     await finishPlansImport("replace");
@@ -3472,9 +3495,10 @@ $("#import-file").addEventListener("change", async (ev) => {
     const data = backupToData(parsed);
     const count = data.sessions.length;
     if (
-      !confirm(
+      !(await ask(
         `Replace everything on this phone with this backup (${count} workout${count === 1 ? "" : "s"})?`,
-      )
+        "Replace",
+      ))
     )
       return;
     await writeLocalData(data);

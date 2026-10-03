@@ -276,29 +276,59 @@ $("#editor").addEventListener("keydown", (ev) => {
   actions["item-add"]();
 });
 
-function ask(question, value = "") {
-  const answer = prompt(question, value);
-  return answer == null ? null : answer.trim() || null;
+/* Dialogs are SweetAlert2 (../vendor/sweetalert2), dressed in the app's
+ * colours by .swal-app in ../app.css. */
+const dialog = (options) =>
+  Swal.fire({
+    reverseButtons: true,
+    buttonsStyling: false,
+    cancelButtonText: "Cancel",
+    customClass: { popup: "swal-app", confirmButton: "btn", cancelButton: "btn ghost" },
+    ...options,
+  });
+
+/** A name, or null if cancelled or left blank. */
+async function ask(question, value = "") {
+  const { value: answer } = await dialog({
+    title: question,
+    input: "text",
+    inputValue: value,
+    showCancelButton: true,
+    confirmButtonText: "Save",
+  });
+  return typeof answer === "string" ? answer.trim() || null : null;
+}
+
+/** Yes before something that can't be undone; `yes` labels the button. */
+async function sure(text, yes = "Delete") {
+  const { isConfirmed } = await dialog({
+    text,
+    showCancelButton: true,
+    focusCancel: true,
+    confirmButtonText: yes,
+    customClass: { popup: "swal-app", confirmButton: "btn danger", cancelButton: "btn ghost" },
+  });
+  return isConfirmed;
 }
 
 const actions = {
-  "add-folder"() {
-    const name = ask("Folder name");
+  async "add-folder"() {
+    const name = await ask("Folder name");
     if (!name) return;
     state.folders.push({ uid: newUid(), name });
     render();
   },
-  "add-block"(el) {
-    const name = ask("Block name", "Block 1");
+  async "add-block"(el) {
+    const name = await ask("Block name", "Block 1");
     if (!name) return;
     const block = { uid: newUid(), name, folder: el.dataset.folder || null };
     state.blocks.push(block);
     state.weeks.push({ uid: newUid(), name: "Week 1", block: block.uid });
     render();
   },
-  "add-week"(el) {
+  async "add-week"(el) {
     const weeks = state.weeks.filter((w) => w.block === el.dataset.uid);
-    const name = ask("Week name", weeks.length ? nextName(weeks.at(-1).name) : "Week 1");
+    const name = await ask("Week name", weeks.length ? nextName(weeks.at(-1).name) : "Week 1");
     if (!name) return;
     state.weeks.push({ uid: newUid(), name, block: el.dataset.uid });
     render();
@@ -336,36 +366,36 @@ const actions = {
     $("#plan-name").select();
   },
 
-  "rename-folder"(el) {
-    rename(state.folders, el.dataset.uid, "Folder name");
+  async "rename-folder"(el) {
+    return rename(state.folders, el.dataset.uid, "Folder name");
   },
-  "rename-block"(el) {
-    rename(state.blocks, el.dataset.uid, "Block name");
+  async "rename-block"(el) {
+    return rename(state.blocks, el.dataset.uid, "Block name");
   },
-  "rename-week"(el) {
-    rename(state.weeks, el.dataset.uid, "Week name");
+  async "rename-week"(el) {
+    return rename(state.weeks, el.dataset.uid, "Week name");
   },
 
-  "del-folder"(el) {
+  async "del-folder"(el) {
     const blocks = state.blocks.filter((b) => b.folder === el.dataset.uid).map((b) => b.uid);
-    if (!confirm("Delete this folder with its blocks, weeks and plans?")) return;
+    if (!(await sure("Delete this folder with its blocks, weeks and plans?"))) return;
     blocks.forEach(deleteBlock);
     removePlans((p) => p.place === `f:${el.dataset.uid}`);
     state.folders = state.folders.filter((f) => f.uid !== el.dataset.uid);
     render();
   },
-  "del-block"(el) {
-    if (!confirm("Delete this block with its weeks and plans?")) return;
+  async "del-block"(el) {
+    if (!(await sure("Delete this block with its weeks and plans?"))) return;
     deleteBlock(el.dataset.uid);
     render();
   },
-  "del-week"(el) {
-    if (!confirm("Delete this week and its plans?")) return;
+  async "del-week"(el) {
+    if (!(await sure("Delete this week and its plans?"))) return;
     deleteWeek(el.dataset.uid);
     render();
   },
-  "del-plan"() {
-    if (!confirm("Delete this plan?")) return;
+  async "del-plan"() {
+    if (!(await sure("Delete this plan?"))) return;
     removePlans((p) => p.uid === state.selected);
     render();
   },
@@ -409,16 +439,16 @@ const actions = {
   import() {
     $("#import-file").click();
   },
-  clear() {
-    if (!confirm("Clear everything here and start over? Export first if you want to keep it.")) return;
+  async clear() {
+    if (!(await sure("Clear everything here and start over? Export first if you want to keep it.", "Start over"))) return;
     state = empty();
     render();
   },
 };
 
-function rename(list, uid, question) {
+async function rename(list, uid, question) {
   const item = list.find((x) => x.uid === uid);
-  const name = ask(question, item.name);
+  const name = await ask(question, item.name);
   if (!name) return;
   item.name = name;
   render();
@@ -563,7 +593,7 @@ $("#import-file").addEventListener("change", async (ev) => {
       throw new Error("That file has no Raw Muscle plans");
     }
     const next = openPlansFile(file);
-    if (state.plans.length && !confirm("Replace what's here with this file's plans?")) return;
+    if (state.plans.length && !(await sure("Replace what's here with this file's plans?", "Replace"))) return;
     state = next;
     render();
     toast(`Opened ${next.plans.length} plan${next.plans.length === 1 ? "" : "s"}`);
