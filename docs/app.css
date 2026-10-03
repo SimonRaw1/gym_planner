@@ -1150,3 +1150,6 @@ body.gated .tabbar {
   font-size: 0.85rem;
   font-weight: 600;
 }
+.install-gate a {
+  color: var(--accent);
+}

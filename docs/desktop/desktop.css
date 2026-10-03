@@ -1,0 +1,229 @@
+/* Raw Muscle Plan Builder: the desktop page. Colours, buttons and inputs come
+ * from ../app.css; this lays them out for a wide screen and a mouse. */
+
+body {
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+
+.topbar {
+  padding: 14px 24px;
+  flex-wrap: wrap;
+  max-width: none; /* app.css narrows and centres it at phone width */
+  margin-inline: 0;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.brand img {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+}
+.brand .muted {
+  margin: 2px 0 0;
+}
+.toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) 1fr;
+  gap: 20px;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px 24px 80px;
+  box-sizing: border-box;
+}
+@media (max-width: 760px) {
+  .layout {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+}
+
+/* ------------------------------------------------------------- the tree */
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-self: start;
+  position: sticky;
+  top: 90px;
+  max-height: calc(100vh - 110px);
+  overflow: auto;
+}
+.side-tools {
+  display: flex;
+  gap: 6px;
+}
+.side-tools .btn {
+  flex: 1;
+}
+.side .clear {
+  align-self: flex-start;
+}
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.branch > .children {
+  margin-left: 14px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font: inherit;
+  color: var(--text);
+}
+.node.folder {
+  font-weight: 650;
+  border-left: 3px solid var(--accent-dim);
+}
+.node.block {
+  font-weight: 600;
+}
+.node.week {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.node.plan {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+.node.plan:hover {
+  background: var(--surface);
+}
+.node.plan.selected {
+  background: var(--surface-2);
+  border-color: var(--accent-dim);
+}
+.node .count {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.node .tools {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+}
+.node:hover .tools,
+.node:focus-within .tools {
+  opacity: 1;
+}
+@media (hover: none) {
+  .node .tools {
+    opacity: 1;
+  }
+}
+.tool {
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tool:hover:not([disabled]) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.tool[disabled] {
+  opacity: 0.3;
+  cursor: default;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ----------------------------------------------------------- the editor */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  align-self: start;
+}
+.placeholder p {
+  max-width: 60ch;
+}
+.editor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.items {
+  width: 100%;
+  border-collapse: collapse;
+}
+.items th {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 4px 6px;
+}
+.items td {
+  padding: 3px 4px;
+}
+.items input,
+.items select {
+  min-height: 38px;
+  padding: 7px 9px;
+}
+.items td:nth-child(2) {
+  width: 34%;
+}
+.items td:nth-child(n + 4):nth-child(-n + 7) {
+  width: 9%;
+}
+.items select[disabled] {
+  opacity: 0.6;
+}
+.items .num {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: right;
+  width: 20px;
+}
+.row-tools {
+  white-space: nowrap;
+}
+.editor-foot {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.toast {
+  bottom: 24px;
+}

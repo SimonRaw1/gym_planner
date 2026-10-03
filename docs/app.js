@@ -112,30 +112,8 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 // --------------------------------------------------------------- utilities
 
-const SEED_EXERCISES = [
-  ["Back Squat", "legs", "barbell"],
-  ["Deadlift", "back", "barbell"],
-  ["Bench Press", "chest", "barbell"],
-  ["Overhead Press", "shoulders", "barbell"],
-  ["Barbell Row", "back", "barbell"],
-  ["Pull Up", "back", "bodyweight"],
-  ["Chin Up", "arms", "bodyweight"],
-  ["Dip", "chest", "bodyweight"],
-  ["Romanian Deadlift", "legs", "barbell"],
-  ["Leg Press", "legs", "machine"],
-  ["Leg Curl", "legs", "machine"],
-  ["Lat Pulldown", "back", "cable"],
-  ["Seated Cable Row", "back", "cable"],
-  ["Dumbbell Bench Press", "chest", "dumbbell"],
-  ["Incline Dumbbell Press", "chest", "dumbbell"],
-  ["Lateral Raise", "shoulders", "dumbbell"],
-  ["Face Pull", "shoulders", "cable"],
-  ["Bicep Curl", "arms", "dumbbell"],
-  ["Tricep Pushdown", "arms", "cable"],
-  ["Plank", "core", "bodyweight"],
-  ["Hanging Leg Raise", "core", "bodyweight"],
-  ["Calf Raise", "legs", "machine"],
-];
+// SEED_EXERCISES, the starter exercise list, is in exercises.js (shared with
+// the desktop plan builder).
 
 const LOCAL_DB = "gym-planner-local";
 const LOCAL_STORE = "state";
@@ -1443,7 +1421,8 @@ function renderInstallGate() {
        <p class="muted">Install the app to use it. It opens full screen and
          works with no connection${isIos() ? ", and Safari won't clear your workouts" : ""}.</p>
        <button class="btn" data-action="${installPrompt ? "install-app" : "install-help"}">Install app</button>
-       ${plansWaiting}`;
+       ${plansWaiting}
+       ${matchMedia("(pointer: fine)").matches ? '<p class="muted">On a computer? <a href="desktop/">Build plans here</a> and send them to your phone.</p>' : ""}`;
 }
 
 const SHARE_ICON = `<svg class="inline-icon" viewBox="0 0 24 24" fill="none"

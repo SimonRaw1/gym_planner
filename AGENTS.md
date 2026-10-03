@@ -16,9 +16,13 @@ stays on their own phone, with no accounts.
 ## Architecture
 
 - docs/index.html: single-page UI shell
+- docs/exercises.js: SEED_EXERCISES, the starter exercise list, shared by both pages
 - docs/app.js: client state, rendering, and the IndexedDB data layer (the `api()` function emulates the old REST routes locally)
 - docs/app.css: phone-first styling
 - docs/sw.js: service worker that caches the shell for offline use
+- docs/desktop/: the desktop plan builder (served at /gym_planner/desktop/). Writes
+  plans with a keyboard and exports the phone's plans file or link; keeps its
+  work in localStorage and never touches the app's IndexedDB data
 - docs/manifest.webmanifest, docs/icons/: PWA install metadata
 - tests/: backup round-trip and migration tests for the data layer
 - tools/make_icons.py: regenerates the icons from tools/logo.png (needs Pillow)

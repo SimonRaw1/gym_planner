@@ -7,6 +7,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const APP = path.join(__dirname, "..", "docs", "app.js");
+const EXERCISES = path.join(__dirname, "..", "docs", "exercises.js");
 
 /** Anything the app reaches for on the DOM: callable, any property, never throws. */
 function inert() {
@@ -102,6 +103,7 @@ function loadApp(stored = new Map(), prefs = new Map()) {
     },
   };
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(EXERCISES, "utf8"), context, { filename: EXERCISES });
   vm.runInContext(fs.readFileSync(APP, "utf8"), context, { filename: APP });
   return {
     stored,

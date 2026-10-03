@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-theme="rawmuscle">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Raw Muscle Plan Builder</title>
+    <link rel="icon" href="../icons/icon-192.png" />
+    <link rel="stylesheet" href="../app.css" />
+    <link rel="stylesheet" href="desktop.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <img src="../icons/icon-192.png" alt="" />
+        <div>
+          <h1>Raw Muscle Plan Builder</h1>
+          <p class="muted">
+            Write plans here, then export them to Plans › Import plans on your phone.
+          </p>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="btn small ghost" data-act="import">Open plans file</button>
+        <button class="btn small ghost" data-act="copy-link">Copy link</button>
+        <button class="btn small" data-act="export">Export plans file</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="side">
+        <div class="side-tools">
+          <button class="btn small ghost" data-act="add-folder">+ Folder</button>
+          <button class="btn small ghost" data-act="add-block" data-folder="">+ Block</button>
+          <button class="btn small ghost" data-act="add-plan" data-place="">+ Plan</button>
+        </div>
+        <nav id="tree" class="tree"></nav>
+        <button class="btn small subtle clear" data-act="clear">Start over</button>
+      </aside>
+      <section id="editor" class="editor"></section>
+    </main>
+
+    <input id="import-file" type="file" hidden />
+    <datalist id="exercise-names"></datalist>
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="../exercises.js"></script>
+    <script src="desktop.js"></script>
+  </body>
+</html>
