@@ -23,7 +23,6 @@ const state = {
   unit: loadPref("unit", "kg"), // how weights are shown and typed; stored in kg
   draft: null, // plan being edited in the sheet
   pendingPlans: null, // parsed plans file waiting for Add new / Overwrite
-  exportLinks: null, // Map of folder id ("" for all) to its plans link (a promise)
   rest: null, // { until: epochMs, timer: intervalId }
 };
 
@@ -2784,58 +2783,19 @@ const actions = {
     $("#import-file").click();
   },
 
-  /* Export sends a link by default; whoever taps it gets the plans in their
-   * app. The links are built while the sheet is open, so a tap can share
-   * straight away (browsers only allow sharing right after a tap). */
+  // A shared file (.txt, which Chrome allows; the import reads the JSON
+  // inside). With folders, a sheet asks which first: the tap on it starts the
+  // share, which browsers only allow right after a tap.
   "export-plans"() {
     const data = dataCache;
     if (!data?.plans.length) return toast("No plans to export");
-    ensureUids(data);
-    const stamp = new Date().toISOString();
-    state.exportLinks = new Map(
-      exportScopes(data).map(({ folder }) => {
-        const id = folder ? folder.id : null;
-        const link = plansLink(plansToExport(data, stamp, id));
-        link.catch(() => {}); // reported if that one is tapped
-        return [String(id ?? ""), link];
-      }),
-    );
+    const scopes = exportScopes(data);
+    if (scopes.length === 1) return exportPlansFile(data, null);
     openSheet(
       "Export plans",
-      '<p class="muted">Send a link, in WhatsApp or anywhere else. Whoever taps it gets the plans in their Raw Muscle app.</p>',
-      `<div class="stack tight">
-        ${exportButtons(data, "share-plans-link")}
-        <button class="btn small subtle" data-action="export-plans-files">Send a file instead</button>
-      </div>`,
-    );
-  },
-
-  "export-plans-files"() {
-    const data = dataCache;
-    if (!data) return closeSheet();
-    openSheet(
-      "Export plans",
-      '<p class="muted">A file to keep, or for someone to add with Import plans.</p>',
+      '<p class="muted">Export every plan, or just one folder.</p>',
       `<div class="stack tight">${exportButtons(data, "export-plans-go")}</div>`,
     );
-  },
-
-  async "share-plans-link"(el) {
-    const data = dataCache;
-    const pending = state.exportLinks?.get(el.dataset.folder);
-    if (!data || !pending) return closeSheet();
-    const folder = data.folders.find((f) => f.id === Number(el.dataset.folder));
-    const link = await pending;
-    if (link.length > MAX_LINK) {
-      toast("Too many plans for one link; send a file instead");
-      return actions["export-plans-files"]();
-    }
-    const title = folder ? `Raw Muscle plans: ${folder.name}` : "Raw Muscle plans";
-    const how = await shareLink(title, link);
-    if (!how) return; // share sheet closed: leave the choices up
-    closeSheet();
-    await writeLocalData(data); // keeps the uids the link was made with
-    toast(how === "copied" ? "Link copied; paste it into a message" : "Plans sent");
   },
 
   async "export-plans-go"(el) {
@@ -3043,7 +3003,8 @@ async function shareJson(name, json) {
 
 // ------------------------------------------------------------ plans links
 
-/* Plans can travel as a link: the plans export, compressed into the part after
+/* Plans can travel as a link (the desktop plan builder's Copy link, and links
+ * the phone used to send): the plans export, compressed into the part after
  * "#", which browsers never send to the server. Opening it shows the Import
  * plans sheet. A link that opens in the browser rather than the installed app
  * (or before installing) waits in localStorage ("pending-plans") until the app
@@ -3052,20 +3013,8 @@ async function shareJson(name, json) {
  * Plans › Import plans in the app. */
 
 const LINK_KEY = "#plans=";
-const MAX_LINK = 60000; // WhatsApp takes messages up to 65,536 characters
 
-/** The link for a plans export (a promise). */
-async function plansLink(exported) {
-  const bytes = new TextEncoder().encode(JSON.stringify(exported));
-  const zipped = await new Response(
-    new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw")),
-  ).arrayBuffer();
-  let bin = "";
-  new Uint8Array(zipped).forEach((b) => (bin += String.fromCharCode(b)));
-  const packed = btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return linkFor(packed);
-}
-
+/** The link for packed plans (for Copy plans on an iPhone's install page). */
 function linkFor(packed) {
   return new URL("./", location.href).href + LINK_KEY + packed;
 }
@@ -3086,23 +3035,6 @@ async function unpackPlans(packed) {
   } catch {
     throw new Error("That plans link is broken or cut short");
   }
-}
-
-/** Share a link as message text (most apps drop a separate url field), or copy
- * it where there's no share sheet. Resolves "shared", "copied", or false if
- * the share sheet was closed. */
-async function shareLink(title, link) {
-  if (navigator.share) {
-    try {
-      await navigator.share({ title, text: `${title}\nTap to add them to your app:\n${link}` });
-      return "shared";
-    } catch (err) {
-      if (err.name === "AbortError") return false;
-      if (err.name !== "NotAllowedError") throw err;
-    }
-  }
-  await navigator.clipboard.writeText(link);
-  return "copied";
 }
 
 /** Plans from a link the app was opened with go to "pending-plans", and the

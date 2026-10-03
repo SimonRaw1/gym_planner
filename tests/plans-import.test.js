@@ -37,10 +37,8 @@ const addPlan = (app, name, groupId = null) =>
     items: [{ exercise_id: 1, target_sets: 3, target_reps: 5, target_rpe: null, rest_seconds: 120 }],
   });
 
-/** Press Export plans, then Send a file instead › All plans, and read back
- * the shared file. */
+/** Export all plans (Export plans › All plans) and read back the shared file. */
 async function exportPlans(app) {
-  await app.run('actions["export-plans"]()');
   app.context.el = { dataset: { folder: "" } };
   await app.run('actions["export-plans-go"](el)');
   return JSON.parse(await app.shared.at(-1).text());
@@ -365,11 +363,16 @@ test("export can take just one folder", async () => {
   assert.equal(all.plans.find((p) => p.name === "Mobility").folder, null);
 });
 
-test("Export plans opens its choices before sharing anything", async () => {
+test("Export plans asks which folder only when there are folders", async () => {
+  const plainPhone = await phone();
+  await addPlan(plainPhone, "Legs");
+  await plainPhone.run('actions["export-plans"]()'); // shares straight away
+  assert.equal(plainPhone.shared.length, 1);
+  assert.match(plainPhone.shared[0].name, /\.txt$/);
+
   const { app } = await phoneWithFolder();
   await app.run('actions["export-plans"]()');
-  assert.equal(app.shared.length + app.sharedText.length, 0);
-  assert.deepEqual([...(await app.run("state.exportLinks")).keys()], ["", "1"]);
+  assert.equal(app.shared.length, 0, "the folder sheet opens instead");
 });
 
 test("importing a folder file recreates the folder, and repeats add nothing", async () => {
@@ -525,14 +528,12 @@ test("duplicating a folder copies its blocks, weeks and plans with new uids", as
   assert.ok(copyFile.plans.every((p) => !file.plans.some((q) => q.uid === p.uid)));
 });
 
-/** Press Export plans, then the link for a folder (or All plans), and return
- * the message text handed to the share sheet. */
+/** A plans link for a phone's export, made as the desktop plan builder makes
+ * it: the file deflated, base64url, after #plans=. */
 async function shareLinkFor(app, folderId = null) {
-  await app.run("localData()"); // what the Plans tab has loaded
-  await app.run('actions["export-plans"]()');
-  app.context.el = { dataset: { folder: folderId == null ? "" : String(folderId) } };
-  await app.run('actions["share-plans-link"](el)');
-  return app.sharedText.at(-1);
+  const file = await exportFolder(app, folderId);
+  const packed = require("node:zlib").deflateRawSync(JSON.stringify(file)).toString("base64url");
+  return `Raw Muscle plans\nhttps://example.test/gym_planner/#plans=${packed}`;
 }
 
 /** Open a plans link (or a message with one) on `app` and tap Add new plans. */
@@ -545,8 +546,6 @@ async function addFromLink(app, text) {
 test("plans travel as a link: a folder, its blocks and weeks, into another phone", async () => {
   const { app, folder } = await phoneWithFolder();
   const message = await shareLinkFor(app, folder.id);
-  assert.match(message, /^Raw Muscle plans: Nationals Prep\n/);
-  assert.match(message, /https:\/\/example\.test\/gym_planner\/#plans=[\w-]+$/);
 
   const friend = await phone();
   await addFromLink(friend, message);
@@ -557,27 +556,6 @@ test("plans travel as a link: a folder, its blocks and weeks, into another phone
   // The same link again adds nothing: the uids came along.
   await addFromLink(friend, message);
   assert.equal(plain(await friend.run("localData()")).plans.length, 2);
-});
-
-test("a full program fits in a short enough link", async () => {
-  const app = await phone();
-  const exercises = plain(await app.run('api("/exercises")'));
-  const weeks = {};
-  for (let w = 1; w <= 4; w++)
-    weeks[`Week ${w}`] = ["Push", "Pull", "Legs"];
-  await addBlock(app, "Hypertrophy", weeks);
-  const data = plain(await app.run("localData()"));
-  data.plans.forEach((plan, i) => {
-    plan.items = exercises.slice(i % 5, (i % 5) + 6).map((e) => ({
-      exercise_id: e.id, target_sets: 3, target_reps: 10, target_rpe: 8, rest_seconds: 90,
-    }));
-  });
-  app.context.edited = data;
-  await app.run("writeLocalData(edited)");
-  app.reload();
-  const link = await shareLinkFor(app);
-  // 12 plans of 6 exercises: well inside a WhatsApp message.
-  assert.ok(link.length < 4000, `link is ${link.length} characters`);
 });
 
 test("a broken or cut short link says so", async () => {
