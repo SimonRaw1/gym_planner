@@ -94,18 +94,19 @@
       <section id="view-plans" class="view" hidden>
         <div id="plan-list" class="stack"></div>
         <div class="stack tight page-foot">
-          <div class="row">
-            <button class="btn ghost" data-action="new-folder">+ New folder</button>
-            <button class="btn ghost" data-action="new-block">+ New block</button>
+          <div class="stack tight build-only">
+            <div class="row">
+              <button class="btn ghost" data-action="new-folder">+ New folder</button>
+              <button class="btn ghost" data-action="new-block">+ New block</button>
+            </div>
+            <button class="btn" data-action="new-plan">+ New plan</button>
+            <button class="btn ghost" data-action="export-plans">Export plans</button>
           </div>
-          <button class="btn" data-action="new-plan">+ New plan</button>
-          <div class="row">
-            <button class="btn small ghost" data-action="export-plans">
-              Export plans
-            </button>
-            <button class="btn small ghost" data-action="import-plans">
-              Import plans
-            </button>
+          <div class="row plans-foot">
+            <button class="btn ghost" data-action="import-plans">Import plans</button>
+            <!-- Build mode: the wrench (drawn by app.js) -->
+            <button class="btn ghost icon-only build-toggle" data-action="toggle-build"
+              aria-pressed="false" aria-label="Build mode" title="Build mode"></button>
           </div>
           <input id="import-plans-file" type="file" hidden />
         </div>

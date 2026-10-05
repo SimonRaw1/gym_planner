@@ -12,6 +12,7 @@ const state = {
   folders: [], // optional top level: a folder holds blocks and plans
   groups: [], // blocks (parent_id null) and the weeks inside them
   openGroups: new Set(loadPref("open-groups", [])), // expanded on the Plans tab
+  building: false, // Plans tab in build mode (vs. just viewing and starting)
   session: null,
   // Exercises marked Done in the running session, and which of those are
   // expanded again: { session, done: [exercise ids], open: [exercise ids] }.
@@ -1079,7 +1080,7 @@ let move = null; // a move in progress
 
 document.addEventListener("pointerdown", (ev) => {
   if (drag || move || ev.button > 0) return;
-  const source = ev.target.closest("[data-move]");
+  const source = state.building && ev.target.closest("[data-move]");
   if (!source || ev.target.closest("button, input, select, a")) return;
   cancelHold();
   hold = {
@@ -1446,6 +1447,13 @@ function renderInstallGate() {
        ${matchMedia("(pointer: fine)").matches ? '<p class="muted">On a computer? <a href="desktop/">Build plans here</a> and send them to your phone.</p>' : ""}`;
 }
 
+// A wrench: build mode on the Plans tab.
+const BUILD_ICON = `<svg class="inline-icon" viewBox="0 0 24 24" fill="none"
+  stroke="currentColor" stroke-width="2" stroke-linecap="round"
+  stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`;
+
+$('[data-action="toggle-build"]').innerHTML = BUILD_ICON;
+
 // Two overlapping pages: copy.
 const COPY_ICON = `<svg class="inline-icon" viewBox="0 0 24 24" fill="none"
   stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -1624,6 +1632,18 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /** Plans tab: folders first, each holding blocks and plans, then blocks
  * outside any folder (each holding weeks, each holding plans), then plans in
  * neither. Folders are optional: without any, the tab is just blocks. */
+/* The Plans tab opens as a viewer: plans to look through and start. Build
+ * mode (the wrench by Import plans) shows everything for making and changing
+ * them; anything marked .build-only is hidden outside it, and plans and
+ * blocks can only be held and dragged in it. */
+function setBuilding(on) {
+  state.building = on;
+  $("#view-plans").classList.toggle("building", on);
+  const toggle = $('[data-action="toggle-build"]');
+  toggle.setAttribute("aria-pressed", String(on));
+  toggle.title = on ? "Done building" : "Build mode";
+}
+
 function renderPlans() {
   const weeks = new Set(
     state.groups.filter((g) => g.parent_id != null).map((g) => g.id),
@@ -1654,7 +1674,7 @@ function renderPlans() {
       </summary>
       <div class="group-body stack">
         ${inner}
-        <div class="row wrap">${tools}</div>
+        <div class="row wrap build-only">${tools}</div>
       </div>
     </details>`;
   const editTools = (group, kind = "group") => `
@@ -1727,7 +1747,9 @@ function renderPlans() {
 
   $("#plan-list").innerHTML =
     foldersHtml + blocksIn(null).map(blockHtml).join("") + looseHtml ||
-    '<p class="empty">No plans yet.<br>A plan is a named list of exercises with targets.<br>Group plans into blocks and weeks with + New block, and blocks into folders with + New folder.</p>';
+    (state.building
+      ? '<p class="empty">No plans yet.<br>A plan is a named list of exercises with targets.<br>Group plans into blocks and weeks with + New block, and blocks into folders with + New folder.</p>'
+      : `<p class="empty">No plans yet.<br>Import plans someone sent you, or tap ${BUILD_ICON} to make your own.</p>`);
 }
 
 /** A plan card: its title drops down to show the exercises (open ones are kept
@@ -1766,10 +1788,10 @@ function planCardHtml(p) {
             ${exercises ? `<ol class="plan-exercises">${exercises}</ol>` : '<p class="muted">No exercises yet.</p>'}
           </details>
           ${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}
-          <div class="row" style="margin-top:12px">
-            ${completed ? "" : `<button class="btn small ghost" data-action="edit-plan" data-id="${p.id}">Edit</button>`}
-            <button class="btn small danger" data-action="del-plan" data-id="${p.id}">Delete</button>
-            <button class="btn small ghost" style="margin-left:auto" data-action="${completed ? "copy-plan" : "start-plan"}" data-id="${p.id}">${completed ? "Copy" : "Start"}</button>
+          <div class="row${completed ? " build-only" : ""}" style="margin-top:12px">
+            ${completed ? "" : `<button class="btn small ghost build-only" data-action="edit-plan" data-id="${p.id}">Edit</button>`}
+            <button class="btn small danger build-only" data-action="del-plan" data-id="${p.id}">Delete</button>
+            <button class="btn small ghost${completed ? " build-only" : ""}" style="margin-left:auto" data-action="${completed ? "copy-plan" : "start-plan"}" data-id="${p.id}">${completed ? "Copy" : "Start"}</button>
           </div>
         </div>`;
 }
@@ -2842,6 +2864,12 @@ const actions = {
     const folder = el.dataset.folder ? Number(el.dataset.folder) : null;
     closeSheet();
     await exportPlansFile(data, folder);
+  },
+
+  "toggle-build"() {
+    setBuilding(!state.building);
+    renderPlans();
+    toast(state.building ? "Build mode: make and change plans" : "Done building");
   },
 
   "import-plans"() {

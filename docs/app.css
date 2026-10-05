@@ -1162,17 +1162,6 @@ body.gated .tabbar {
 .export-row .btn:first-child {
   flex: 1;
 }
-.export-row .btn.icon-only {
-  width: 48px;
-  flex: none;
-  padding: 0;
-  display: grid;
-  place-items: center;
-}
-.export-row .icon-only .inline-icon {
-  width: 20px;
-  height: 20px;
-}
 
 /* SweetAlert2 dialogs (docs/vendor/sweetalert2), in the app's colours. Its own
  * CSS is injected after this file, so these use two classes to win. */
@@ -1224,4 +1213,31 @@ body.gated .tabbar {
 .swal-app .swal2-actions .btn {
   flex: 1;
   margin: 0;
+}
+
+/* Plans tab: a viewer until the wrench turns on build mode. */
+#view-plans:not(.building) .build-only {
+  display: none !important;
+}
+.plans-foot .btn:first-child {
+  flex: 1;
+}
+.btn.icon-only {
+  width: 48px;
+  flex: none;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+.btn.icon-only .inline-icon {
+  width: 20px;
+  height: 20px;
+}
+.build-toggle[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.empty .inline-icon {
+  vertical-align: -0.25em;
 }
