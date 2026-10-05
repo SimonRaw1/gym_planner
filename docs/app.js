@@ -707,9 +707,9 @@ async function api(path, options = {}) {
       .sort((a, b) => b.weight - a.weight)
       .slice(0, 3);
     result = {
-      sessions_total: data.sessions.filter((session) => session.finished_at)
-        .length,
       sessions_7d: recent.length,
+      sets_7d: sets.length,
+      reps_7d: sets.reduce((sum, set) => sum + set.reps, 0),
       volume_7d: sets.reduce((sum, set) => sum + set.reps * set.weight, 0),
       personal_bests: best,
       recent_pbs: recentPbs(data, cutoff),
@@ -1579,14 +1579,20 @@ function renderStats(stats) {
     <span class="pill">${fmtWeight(b.weight)} ${unitLabel()}</span></div>`,
     )
     .join("");
+  $("#heaviest").hidden = !best;
+  $("#heaviest").innerHTML = `
+    <h2>Heaviest ever</h2>
+    <div class="stack tight" style="margin-top:8px">${best}</div>`;
+  const tile = (value, label) =>
+    `<div class="stat"><strong>${value}</strong><span class="muted">${label}</span></div>`;
   $("#stats").innerHTML = `
     <h2>Last 7 days</h2>
-    <div class="row wrap" style="margin-top:8px">
-      <span class="pill">${stats.sessions_7d} session${stats.sessions_7d === 1 ? "" : "s"}</span>
-      <span class="pill">${fmtWeight(stats.volume_7d)} ${unitLabel()} volume</span>
-      <span class="pill">${stats.sessions_total} total</span>
-    </div>
-    ${best ? `<h3 style="margin-top:14px">Heaviest sets</h3><div class="stack tight" style="margin-top:6px">${best}</div>` : ""}`;
+    <div class="stat-grid">
+      ${tile(stats.sessions_7d, stats.sessions_7d === 1 ? "session" : "sessions")}
+      ${tile(stats.sets_7d, stats.sets_7d === 1 ? "set" : "sets")}
+      ${tile(stats.reps_7d, stats.reps_7d === 1 ? "rep" : "reps")}
+      ${tile(fmtWeight(stats.volume_7d), `${unitLabel()} volume`)}
+    </div>`;
 }
 
 function renderActiveSession() {
