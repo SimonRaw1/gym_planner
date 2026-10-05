@@ -705,17 +705,63 @@ async function api(path, options = {}) {
       }))
       .filter((item) => item.weight > 0)
       .sort((a, b) => b.weight - a.weight)
-      .slice(0, 5);
+      .slice(0, 3);
     result = {
       sessions_total: data.sessions.filter((session) => session.finished_at)
         .length,
       sessions_7d: recent.length,
       volume_7d: sets.reduce((sum, set) => sum + set.reps * set.weight, 0),
       personal_bests: best,
+      recent_pbs: recentPbs(data, cutoff),
     };
   } else throw new Error("Unknown local data request");
   if (method !== "GET") await writeLocalData(data);
   return result;
+}
+
+/* The big lifts lead Recent PBs when a session sets more than will fit. */
+const BIG_LIFTS = /^(back squat|squat|bench press|bench|deadlift)$/i;
+
+/** Recent PBs: working sets heavier than every earlier set of that exercise
+ * (so not the first time it's done) since `cutoff`, the latest per exercise.
+ * Newest session first, its Squat, Bench and Deadlift ahead of the rest, and
+ * at most 3, so a new PB pushes out the oldest. */
+function recentPbs(data, cutoff) {
+  const sets = data.sessions
+    .flatMap((session) =>
+      session.sets.filter((set) => !set.warmup).map((set) => ({ set, session })),
+    )
+    .sort(
+      (a, b) =>
+        a.session.started_at.localeCompare(b.session.started_at) || a.set.id - b.set.id,
+    );
+  const heaviest = new Map(); // exercise id → heaviest weight so far
+  const latest = new Map(); // exercise id → its latest PB
+  sets.forEach(({ set, session }) => {
+    const before = heaviest.get(set.exercise_id);
+    if (before !== undefined && set.weight > before)
+      latest.set(set.exercise_id, { set, session });
+    if (before === undefined || set.weight > before) heaviest.set(set.exercise_id, set.weight);
+  });
+  const nameOf = (id) => data.exercises.find((e) => e.id === id)?.name || "Unknown exercise";
+  return [...latest.values()]
+    .filter(({ set, session }) => parseTs(set.logged_at || session.started_at).getTime() >= cutoff)
+    .map(({ set, session }) => ({
+      name: nameOf(set.exercise_id),
+      weight: set.weight,
+      reps: set.reps,
+      at: set.logged_at || session.started_at,
+      session: session.started_at,
+      order: set.id,
+    }))
+    .sort(
+      (a, b) =>
+        b.session.localeCompare(a.session) ||
+        BIG_LIFTS.test(b.name) - BIG_LIFTS.test(a.name) ||
+        b.order - a.order,
+    )
+    .slice(0, 3)
+    .map(({ name, weight, reps, at }) => ({ name, weight, reps, at }));
 }
 
 function esc(value) {
@@ -1513,6 +1559,19 @@ function renderCurrentSession() {
 }
 
 function renderStats(stats) {
+  const pbs = stats.recent_pbs || [];
+  $("#recent-pbs").hidden = !pbs.length;
+  $("#recent-pbs").innerHTML = `
+    <h2>Recent PBs</h2>
+    <div class="stack tight" style="margin-top:8px">${pbs
+      .map(
+        (pb) => `
+      <div class="spread">
+        <span><strong>${esc(pb.name)}</strong><br><span class="muted">${esc(dayLabel(pb.at))}</span></span>
+        <span class="pill pb">${fmtWeight(pb.weight)} ${unitLabel()} &times; ${pb.reps}</span>
+      </div>`,
+      )
+      .join("")}</div>`;
   const best = stats.personal_bests
     .map(
       (b) => `

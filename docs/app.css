@@ -1247,3 +1247,14 @@ body.gated .tabbar {
 .empty .inline-icon {
   vertical-align: -0.25em;
 }
+
+/* Train page: heaviest-ever sets from the last week. */
+.pb-card {
+  border-color: var(--accent);
+}
+.pill.pb {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+  white-space: nowrap;
+}
