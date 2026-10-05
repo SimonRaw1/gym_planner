@@ -11,7 +11,7 @@ const state = {
   plans: [],
   folders: [], // optional top level: a folder holds blocks and plans
   groups: [], // blocks (parent_id null) and the weeks inside them
-  openGroups: new Set(loadPref("open-groups", [])), // expanded on the Plans tab
+  openGroups: new Set(loadPref("open-groups", [])), // plan cards dropped down ("p<id>")
   building: false, // Plans tab in build mode (vs. just viewing and starting)
   session: null,
   // Exercises marked Done in the running session, and which of those are
@@ -1081,7 +1081,10 @@ let move = null; // a move in progress
 document.addEventListener("pointerdown", (ev) => {
   if (drag || move || ev.button > 0) return;
   const source = state.building && ev.target.closest("[data-move]");
-  if (!source || ev.target.closest("button, input, select, a")) return;
+  // Not from a control inside it (Start, Edit…); a row that is itself a
+  // button (a folder or block to tap into) can still be held.
+  const control = ev.target.closest("button, input, select, a");
+  if (!source || (control && control !== source)) return;
   cancelHold();
   hold = {
     source,
@@ -1311,10 +1314,6 @@ async function moveTo(kind, id, where, whereId) {
       body: { group_id: where === "week" ? whereId : null, folder_id: folder },
     });
   }
-  // Open where it went so it can be seen there.
-  if (folder) state.openGroups.add(`f${folder}`);
-  if (where === "week") state.openGroups.add(whereId);
-  saveOpenGroups();
   const name =
     where === "folder"
       ? state.folders.find((f) => f.id === whereId)?.name
@@ -1644,112 +1643,134 @@ function setBuilding(on) {
   toggle.title = on ? "Done building" : "Build mode";
 }
 
+/* The Plans tab goes one level at a time. The top lists folders, blocks
+ * and loose plans; tapping a folder, block or week opens it as a screen of
+ * its own ("folder:<id>", "block:<id>" or "week:<id>" on the screen stack, so
+ * the back button steps out again). Plans are cards whose exercises drop
+ * down. */
+function planDir(stack = currentStack()) {
+  const dir = { folder: null, block: null, week: null };
+  stack.forEach((screen) => {
+    const [kind, id] = String(screen).split(":");
+    if (id && Object.hasOwn(dir, kind)) dir[kind] = Number(id);
+  });
+  return dir;
+}
+
 function renderPlans() {
-  const weeks = new Set(
-    state.groups.filter((g) => g.parent_id != null).map((g) => g.id),
-  );
-  const plansIn = (id) =>
-    state.plans.filter((p) => (weeks.has(p.group_id) ? p.group_id : null) === id);
+  const stack = currentStack();
+  const dir = planDir(stack);
   const blocks = state.groups.filter((g) => g.parent_id == null);
-  const blocksIn = (folderId) =>
-    blocks.filter((b) => (b.folder_id ?? null) === folderId);
+  const weeks = state.groups.filter((g) => g.parent_id != null);
+  const weekIds = new Set(weeks.map((w) => w.id));
+  const folder = state.folders.find((f) => f.id === dir.folder);
+  const block = blocks.find((b) => b.id === dir.block);
+  const week = weeks.find((w) => w.id === dir.week);
+
+  // Something opened has since been deleted: step back out to what's left.
+  const found = { folder, block, week };
+  const valid = stack.filter((screen) => {
+    const [kind, id] = String(screen).split(":");
+    return !id || !Object.hasOwn(found, kind) || found[kind];
+  });
+  if (valid.length !== stack.length) return navigate(valid);
+
+  const plansInWeek = (id) => state.plans.filter((p) => p.group_id === id);
   const looseIn = (folderId) =>
-    plansIn(null).filter((p) => (p.folder_id ?? null) === folderId);
-
-  // Folders share openGroups with blocks and weeks, keyed "f<id>". `drop`
-  // makes it a place to drop a held plan or block; `move` lets a block or
-  // folder be held.
-  const groupHtml = (
-    group,
-    inner,
-    count,
-    tools,
-    { key = group.id, kind = "group", drop = "", move = "" } = {},
-  ) => `
-    <details class="group${kind === "folder" ? " folder" : ""}" data-${kind}="${group.id}"${drop ? ` data-drop="${drop}"` : ""}${move ? ` data-order="${move}"` : ""}${state.openGroups.has(key) ? " open" : ""}>
-      <summary${move ? ` data-move="${move}"` : ""}>
-        <span class="chev" aria-hidden="true"></span>
-        <span class="grow group-name">${esc(group.name)}</span>
-        <span class="pill">${count}</span>
-      </summary>
-      <div class="group-body stack">
-        ${inner}
-        <div class="row wrap build-only">${tools}</div>
-      </div>
-    </details>`;
-  const editTools = (group, kind = "group") => `
-    <button class="btn small ghost" data-action="rename-${kind}" data-id="${group.id}">Rename</button>
-    <button class="btn small danger" data-action="del-${kind}" data-id="${group.id}">Delete</button>`;
-
-  const blockHtml = (block) => {
-    const blockWeeks = state.groups.filter((g) => g.parent_id === block.id);
-    const weeksHtml = blockWeeks
-      .map((week) => {
-        const plans = plansIn(week.id);
-        return groupHtml(
-          week,
-          plans.map(planCardHtml).join("") ||
-            '<p class="muted">No plans in this week yet.</p>',
-          plural(plans.length, "plan"),
-          `<button class="btn small ghost" data-action="new-plan" data-group="${week.id}">+ Plan</button>
-          ${editTools(week)}`,
-          { drop: `week:${week.id}` },
-        );
-      })
-      .join("");
-    return groupHtml(
-      block,
-      weeksHtml || '<p class="muted">No weeks in this block yet.</p>',
-      plural(blockWeeks.length, "week"),
-      `<button class="btn small ghost" data-action="new-week" data-parent="${block.id}">+ Week</button>
-      ${editTools(block)}`,
-      { move: `block:${block.id}` },
-    );
+    state.plans.filter((p) => !weekIds.has(p.group_id) && (p.folder_id ?? null) === folderId);
+  const blocksIn = (folderId) => blocks.filter((b) => (b.folder_id ?? null) === folderId);
+  const weeksOf = (blockId) => weeks.filter((w) => w.parent_id === blockId);
+  const folderPlanCount = (f) => {
+    const inBlocks = new Set(blocksIn(f.id).map((b) => b.id));
+    return state.plans.filter((p) => {
+      const w = weeks.find((g) => g.id === p.group_id);
+      return w ? inBlocks.has(w.parent_id) : p.folder_id === f.id;
+    }).length;
   };
 
-  const foldersHtml = state.folders
-    .map((folder) => {
-      const inBlocks = blocksIn(folder.id);
-      const loose = looseIn(folder.id);
-      const blockIds = new Set(inBlocks.map((b) => b.id));
-      const count = state.plans.filter((p) => {
-        const week = state.groups.find((g) => g.id === p.group_id && weeks.has(g.id));
-        return week ? blockIds.has(week.parent_id) : p.folder_id === folder.id;
-      }).length;
-      return groupHtml(
-        folder,
-        inBlocks.map(blockHtml).join("") + loose.map(planCardHtml).join("") ||
-          '<p class="muted">Nothing in this folder yet.</p>',
-        plural(count, "plan"),
-        // Adding things gets a full-width row; managing the folder the next.
-        `<div class="row fill">
-          <button class="btn small ghost" data-action="new-block" data-folder="${folder.id}">+ Block</button>
-          <button class="btn small ghost" data-action="new-plan" data-folder="${folder.id}">+ Plan</button>
-        </div>
-        <div class="row">
-          <button class="btn small ghost" data-action="copy-folder" data-id="${folder.id}">Duplicate</button>
-          ${editTools(folder, "folder")}
-        </div>`,
-        {
-          key: `f${folder.id}`,
-          kind: "folder",
-          drop: `folder:${folder.id}`,
-          move: `folder:${folder.id}`,
-        },
-      );
-    })
-    .join("");
+  /* A folder, block or week to tap into. `drop` makes it a place to drop a
+   * held plan or block; `move` lets it be held and dragged into order. */
+  const row = (kind, item, count, { drop = "", move = "" } = {}) => `
+    <button type="button" class="card dir-row ${kind}" data-action="open-dir" data-to="${kind}:${item.id}"${drop ? ` data-drop="${drop}"` : ""}${move ? ` data-move="${move}" data-order="${move}"` : ""}>
+      <span class="grow group-name">${esc(item.name)}</span>
+      <span class="pill">${count}</span>
+      <span class="chev" aria-hidden="true"></span>
+    </button>`;
+  const folderRow = (f) =>
+    row("folder", f, plural(folderPlanCount(f), "plan"), { drop: `folder:${f.id}`, move: `folder:${f.id}` });
+  const blockRow = (b) => row("block", b, plural(weeksOf(b.id).length, "week"), { move: `block:${b.id}` });
+  const weekRow = (w) => {
+    const plans = plansInWeek(w.id);
+    const done = plans.filter((p) => p.completed_at).length;
+    return row("week", w, done ? `${done}/${plans.length} done` : plural(plans.length, "plan"), {
+      drop: `week:${w.id}`,
+    });
+  };
 
-  const loose = looseIn(null);
-  const looseHtml = loose.length
-    ? `${blocks.length || state.folders.length ? '<h3 class="group-label">Other plans</h3>' : ""}${loose.map(planCardHtml).join("")}`
-    : "";
+  // The opened folder, block or week: back, where it sits, and its tools.
+  const head = (title, crumbs, count, tools) => `
+    <div class="dir-head">
+      <button type="button" class="back-btn" data-action="plans-back" aria-label="Back">
+        <span class="chev" aria-hidden="true"></span></button>
+      <div class="grow">
+        ${crumbs.length ? `<div class="crumbs">${crumbs.map(esc).join(" › ")}</div>` : ""}
+        <h2>${esc(title)}</h2>
+      </div>
+      <span class="pill">${count}</span>
+    </div>
+    <div class="row wrap build-only">${tools}</div>`;
+  const editTools = (item, kind = "group") => `
+    <button class="btn small ghost" data-action="rename-${kind}" data-id="${item.id}">Rename</button>
+    <button class="btn small danger" data-action="del-${kind}" data-id="${item.id}">Delete</button>`;
+  const label = (text) => `<h3 class="group-label">${text}</h3>`;
+  const empty = (text) => `<p class="muted dir-empty">${text}</p>`;
 
-  $("#plan-list").innerHTML =
-    foldersHtml + blocksIn(null).map(blockHtml).join("") + looseHtml ||
-    (state.building
+  let html;
+  if (week) {
+    const parent = blocks.find((b) => b.id === week.parent_id);
+    const inFolder = state.folders.find((f) => f.id === parent?.folder_id);
+    const plans = plansInWeek(week.id);
+    html =
+      head(week.name, [inFolder?.name, parent?.name].filter(Boolean), plural(plans.length, "plan"), `
+        <button class="btn small ghost" data-action="new-plan" data-group="${week.id}">+ Plan</button>
+        ${editTools(week)}`) +
+      (plans.map(planCardHtml).join("") || empty("No plans in this week yet."));
+  } else if (block) {
+    const inFolder = state.folders.find((f) => f.id === block.folder_id);
+    const blockWeeks = weeksOf(block.id);
+    html =
+      head(block.name, inFolder ? [inFolder.name] : [], plural(blockWeeks.length, "week"), `
+        <button class="btn small ghost" data-action="new-week" data-parent="${block.id}">+ Week</button>
+        ${editTools(block)}`) +
+      (blockWeeks.map(weekRow).join("") || empty("No weeks in this block yet."));
+  } else if (folder) {
+    const inBlocks = blocksIn(folder.id);
+    const loose = looseIn(folder.id);
+    html =
+      head(folder.name, [], plural(folderPlanCount(folder), "plan"), `
+        <button class="btn small ghost" data-action="new-block" data-folder="${folder.id}">+ Block</button>
+        <button class="btn small ghost" data-action="new-plan" data-folder="${folder.id}">+ Plan</button>
+        <button class="btn small ghost" data-action="copy-folder" data-id="${folder.id}">Duplicate</button>
+        ${editTools(folder, "folder")}`) +
+      (inBlocks.map(blockRow).join("") +
+        (loose.length ? (inBlocks.length ? label("Plans") : "") + loose.map(planCardHtml).join("") : "") ||
+        empty("Nothing in this folder yet."));
+  } else {
+    const topBlocks = blocksIn(null);
+    const loose = looseIn(null);
+    html =
+      state.folders.map(folderRow).join("") +
+      topBlocks.map(blockRow).join("") +
+      (loose.length
+        ? (topBlocks.length || state.folders.length ? label("Other plans") : "") + loose.map(planCardHtml).join("")
+        : "");
+    html ||= state.building
       ? '<p class="empty">No plans yet.<br>A plan is a named list of exercises with targets.<br>Group plans into blocks and weeks with + New block, and blocks into folders with + New folder.</p>'
-      : `<p class="empty">No plans yet.<br>Import plans someone sent you, or tap ${BUILD_ICON} to make your own.</p>`);
+      : `<p class="empty">No plans yet.<br>Import plans someone sent you, or tap ${BUILD_ICON} to make your own.</p>`;
+  }
+  // The page's + New buttons are for the top level only.
+  $("#view-plans").classList.toggle("in-dir", !!(week || block || folder));
+  $("#plan-list").innerHTML = html;
 }
 
 /** A plan card: its title drops down to show the exercises (open ones are kept
@@ -2189,7 +2210,8 @@ function pushScreens(stack, from) {
 function showScreen(stack) {
   const top = stack[stack.length - 1] || "train";
   state.inSession = top === "session";
-  setView(state.inSession ? "train" : top);
+  // A folder, block or week opened on the Plans tab ("week:3") is Plans too.
+  setView(state.inSession ? "train" : top.includes(":") ? "plans" : top);
 }
 
 window.addEventListener("popstate", () => {
@@ -2519,9 +2541,7 @@ const actions = {
     if (el.dataset.id) {
       await api(`/folders/${el.dataset.id}`, { method: "PUT", body: { name } });
     } else {
-      const folder = await api("/folders", { method: "POST", body: { name } });
-      state.openGroups.add(`f${folder.id}`);
-      saveOpenGroups();
+      await api("/folders", { method: "POST", body: { name } });
     }
     closeSheet();
     refresh();
@@ -2540,12 +2560,10 @@ const actions = {
   async "folder-copy"(el) {
     const name = $("#group-name").value.trim();
     if (!name) return toast("Give it a name");
-    const folder = await api(`/folders/${el.dataset.id}/copy`, {
+    await api(`/folders/${el.dataset.id}/copy`, {
       method: "POST",
       body: { name },
     });
-    state.openGroups.add(`f${folder.id}`);
-    saveOpenGroups();
     closeSheet();
     toast(`Made ${name}`);
     refresh();
@@ -2604,15 +2622,10 @@ const actions = {
       await api(`/groups/${el.dataset.id}`, { method: "PUT", body });
     } else {
       const parentId = el.dataset.parent ? Number(el.dataset.parent) : null;
-      const group = await api("/groups", {
+      await api("/groups", {
         method: "POST",
         body: { ...body, parent_id: parentId },
       });
-      // Show what was just made.
-      state.openGroups.add(group.id);
-      if (parentId) state.openGroups.add(parentId);
-      if (group.folder_id) state.openGroups.add(`f${group.folder_id}`);
-      saveOpenGroups();
     }
     closeSheet();
     refresh();
@@ -2864,6 +2877,14 @@ const actions = {
     const folder = el.dataset.folder ? Number(el.dataset.folder) : null;
     closeSheet();
     await exportPlansFile(data, folder);
+  },
+
+  "open-dir"(el) {
+    navigate([...currentStack(), el.dataset.to]);
+  },
+
+  "plans-back"() {
+    navigate(currentStack().slice(0, -1));
   },
 
   "toggle-build"() {
@@ -3492,10 +3513,9 @@ document.addEventListener("keydown", (ev) => {
 document.addEventListener(
   "toggle",
   (ev) => {
-    const folder = Number(ev.target.dataset?.folder);
     const plan = Number(ev.target.dataset?.plan);
-    const id = folder ? `f${folder}` : plan ? `p${plan}` : Number(ev.target.dataset?.group);
-    if (!id) return;
+    if (!plan) return;
+    const id = `p${plan}`;
     if (ev.target.open) state.openGroups.add(id);
     else state.openGroups.delete(id);
     saveOpenGroups();
