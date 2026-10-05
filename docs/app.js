@@ -704,8 +704,7 @@ async function api(path, options = {}) {
         ),
       }))
       .filter((item) => item.weight > 0)
-      .sort((a, b) => b.weight - a.weight)
-      .slice(0, 3);
+      .sort((a, b) => b.weight - a.weight);
     result = {
       sessions_7d: recent.length,
       sets_7d: sets.length,
@@ -724,8 +723,8 @@ const BIG_LIFTS = /^(back squat|squat|bench press|bench|deadlift)$/i;
 
 /** Recent PBs: working sets heavier than every earlier set of that exercise
  * (so not the first time it's done) since `cutoff`, the latest per exercise.
- * Newest session first, its Squat, Bench and Deadlift ahead of the rest, and
- * at most 3, so a new PB pushes out the oldest. */
+ * Newest session first, its Squat, Bench and Deadlift ahead of the rest; the
+ * Train page shows as many as fit. */
 function recentPbs(data, cutoff) {
   const sets = data.sessions
     .flatMap((session) =>
@@ -760,7 +759,6 @@ function recentPbs(data, cutoff) {
         BIG_LIFTS.test(b.name) - BIG_LIFTS.test(a.name) ||
         b.order - a.order,
     )
-    .slice(0, 3)
     .map(({ name, weight, reps, at }) => ({ name, weight, reps, at }));
 }
 
@@ -1558,31 +1556,28 @@ function renderCurrentSession() {
     </button>`;
 }
 
+/* The Train page fills the screen and no more: Heaviest ever always shows
+ * 3, this week's PBs fill the room left (at least 1 when there are any), and
+ * any room after that goes to more heaviest-ever sets. */
 function renderStats(stats) {
   const pbs = stats.recent_pbs || [];
-  $("#recent-pbs").hidden = !pbs.length;
-  $("#recent-pbs").innerHTML = `
-    <h2>Recent PBs</h2>
-    <div class="stack tight" style="margin-top:8px">${pbs
-      .map(
-        (pb) => `
+  const best = stats.personal_bests || [];
+  const pbRow = (pb) => `
       <div class="spread">
         <span><strong>${esc(pb.name)}</strong><br><span class="muted">${esc(dayLabel(pb.at))}</span></span>
         <span class="pill pb">${fmtWeight(pb.weight)} ${unitLabel()} &times; ${pb.reps}</span>
-      </div>`,
-      )
-      .join("")}</div>`;
-  const best = stats.personal_bests
-    .map(
-      (b) => `
+      </div>`;
+  const bestRow = (b) => `
     <div class="spread"><span>${esc(b.name)}</span>
-    <span class="pill">${fmtWeight(b.weight)} ${unitLabel()}</span></div>`,
-    )
-    .join("");
-  $("#heaviest").hidden = !best;
+    <span class="pill">${fmtWeight(b.weight)} ${unitLabel()}</span></div>`;
+  $("#recent-pbs").hidden = !pbs.length;
+  $("#recent-pbs").innerHTML = `
+    <h2>Recent PBs</h2>
+    <div class="stack tight" style="margin-top:8px">${pbs.slice(0, 1).map(pbRow).join("")}</div>`;
+  $("#heaviest").hidden = !best.length;
   $("#heaviest").innerHTML = `
     <h2>Heaviest ever</h2>
-    <div class="stack tight" style="margin-top:8px">${best}</div>`;
+    <div class="stack tight" style="margin-top:8px">${best.slice(0, 3).map(bestRow).join("")}</div>`;
   const tile = (value, label) =>
     `<div class="stat"><strong>${value}</strong><span class="muted">${label}</span></div>`;
   $("#stats").innerHTML = `
@@ -1593,6 +1588,21 @@ function renderStats(stats) {
       ${tile(stats.reps_7d, stats.reps_7d === 1 ? "rep" : "reps")}
       ${tile(fmtWeight(stats.volume_7d), `${unitLabel()} volume`)}
     </div>`;
+
+  // Then one row at a time while the page still fits on screen.
+  const fits = () => document.documentElement.scrollHeight <= window.innerHeight;
+  const fill = (list, rows, html) => {
+    for (const row of rows) {
+      list.insertAdjacentHTML("beforeend", html(row));
+      if (!fits()) {
+        list.lastElementChild.remove();
+        return false;
+      }
+    }
+    return true;
+  };
+  if (fill($("#recent-pbs .stack"), pbs.slice(1), pbRow))
+    fill($("#heaviest .stack"), best.slice(3), bestRow);
 }
 
 function renderActiveSession() {

@@ -60,30 +60,30 @@ test("PBs older than a week drop off", async () => {
   assert.deepEqual(await pbs(app), []);
 });
 
-test("at most 3: a newer PB pushes out the oldest, and the latest per exercise counts", async () => {
+test("newest PBs first, and the latest per exercise counts", async () => {
   const app = await phoneWith([
     [20, [["Bicep Curl", 10, 10], ["Lateral Raise", 8, 10], ["Face Pull", 20, 10], ["Leg Curl", 40, 10]]],
     [5, [["Bicep Curl", 12, 10], ["Lateral Raise", 9, 10]]],
     [3, [["Face Pull", 25, 10], ["Bicep Curl", 14, 8]]],
     [1, [["Leg Curl", 45, 10]]],
   ]);
-  assert.deepEqual(await pbs(app), ["Leg Curl 45x10", "Bicep Curl 14x8", "Face Pull 25x10"]);
+  assert.deepEqual(await pbs(app), ["Leg Curl 45x10", "Bicep Curl 14x8", "Face Pull 25x10", "Lateral Raise 9x10"]);
 });
 
-test("in a session with more than 3 PBs, Squat, Bench and Deadlift come first", async () => {
+test("in a session's PBs, Squat, Bench and Deadlift come first", async () => {
   const app = await phoneWith([
     [20, [["Bicep Curl", 10, 10], ["Lateral Raise", 8, 10], ["Back Squat", 100, 5], ["Face Pull", 20, 10]]],
     [1, [["Bicep Curl", 12, 10], ["Lateral Raise", 9, 10], ["Face Pull", 25, 10], ["Back Squat", 110, 5]]],
   ]);
   const shown = await pbs(app);
-  assert.equal(shown.length, 3);
+  assert.equal(shown.length, 4);
   assert.equal(shown[0], "Back Squat 110x5");
 });
 
-test("Heaviest sets shows the top 3", async () => {
+test("Heaviest ever lists every exercise, heaviest first", async () => {
   const app = await phoneWith([
     [2, [["Deadlift", 180, 3], ["Back Squat", 150, 3], ["Bench Press", 110, 3], ["Overhead Press", 70, 3]]],
   ]);
   const best = plain(await app.run('api("/stats")')).personal_bests;
-  assert.deepEqual(best.map((b) => b.name), ["Deadlift", "Back Squat", "Bench Press"]);
+  assert.deepEqual(best.map((b) => b.name), ["Deadlift", "Back Squat", "Bench Press", "Overhead Press"]);
 });
