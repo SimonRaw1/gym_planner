@@ -44,9 +44,11 @@ async function exportPlans(app) {
   return JSON.parse(await app.shared.at(-1).text());
 }
 
+/** Import a file and return what happened to plans: { added, updated,
+ * skipped } (new folders, blocks and weeks are checked on their own). */
 async function importPlans(app, file, mode) {
   app.context.file = file;
-  const result = plain(app.run(`importPlans(dataCache, file, ${JSON.stringify(mode)})`));
+  const { groups, ...result } = plain(app.run(`importPlans(dataCache, file, ${JSON.stringify(mode)})`));
   await app.run("writeLocalData(dataCache)");
   return result;
 }
@@ -106,7 +108,8 @@ test("Add new imports only the plans the phone doesn't have", async () => {
     "My own plan",
   ]);
   const data = plain(await b.run("localData()"));
-  assert.equal(data.groups.filter((g) => g.parent_id == null).length, 1, "no duplicate block");
+  // Empty Block 2 came across too, and Week 2 before it had a plan.
+  assert.equal(data.groups.filter((g) => g.parent_id == null).length, 2, "no duplicate blocks");
   assert.equal(data.groups.filter((g) => g.parent_id != null).length, 2, "no duplicate weeks");
 
   // Importing the same file again changes nothing.
@@ -240,7 +243,7 @@ test("the import sheet's dry run leaves the phone alone", async () => {
   const before = plain(await b.run("localData()"));
   b.context.file = await exportPlans(a);
   const counts = plain(b.run("importPlans(structuredClone(dataCache), file)"));
-  assert.deepEqual(counts, { added: 1, updated: 0, skipped: 0 });
+  assert.deepEqual(counts, { added: 1, updated: 0, skipped: 0, groups: 2 });
   assert.deepEqual(plain(await b.run("localData()")), before);
 });
 
@@ -627,4 +630,58 @@ test("Add new updates a plan that changed and skips one that didn't", async () =
 
   // Sending the same file again changes nothing.
   assert.deepEqual(await importPlans(b, file, "add"), { added: 0, updated: 0, skipped: 2 });
+});
+
+test("empty folders, blocks and weeks travel with the plans", async () => {
+  const a = await phone();
+  const folder = plain(await post(a, "/folders", { name: "Off season" }));
+  const block = plain(await post(a, "/groups", { name: "Base", folder_id: folder.id }));
+  await post(a, "/groups", { name: "Week 1", parent_id: block.id });
+  await post(a, "/groups", { name: "Week 2", parent_id: block.id });
+  await post(a, "/folders", { name: "Empty folder" });
+  await addBlock(a, "Peak", { "Week 1": ["Heavy"], "Week 2": [] });
+
+  const shape = async (app) => {
+    const data = plain(await app.run("localData()"));
+    const name = (list, id) => list.find((x) => x.id === id)?.name;
+    return {
+      folders: data.folders.map((f) => f.name).sort(),
+      weeks: data.groups
+        .filter((g) => g.parent_id != null)
+        .map((w) => {
+          const b = data.groups.find((g) => g.id === w.parent_id);
+          return `${name(data.folders, b.folder_id) ?? "-"} / ${b.name} / ${w.name}`;
+        })
+        .sort(),
+    };
+  };
+  const file = await exportPlans(a);
+  assert.deepEqual(file.structure.weeks.map((w) => `${w.block} / ${w.name}`).sort(), [
+    "Base / Week 1", "Base / Week 2", "Peak / Week 1", "Peak / Week 2",
+  ]);
+
+  const b = await phone();
+  b.context.file = file;
+  const result = plain(await b.run('importPlans(dataCache, file, "add")'));
+  await b.run("writeLocalData(dataCache)");
+  assert.equal(result.added, 1);
+  assert.equal(result.groups, 8, "2 folders, 2 blocks and 4 weeks");
+  assert.deepEqual(await shape(b), await shape(a));
+  // Again: nothing new, and no duplicates.
+  b.context.file = file;
+  assert.equal(plain(await b.run('importPlans(dataCache, file, "add")')).groups, 0);
+  // Overwrite builds the same shape too.
+  const c = await phone();
+  await addBlock(c, "Old", { "Week 1": ["Gone"] });
+  await importPlans(c, file, "replace");
+  assert.deepEqual(await shape(c), await shape(a));
+
+  // A folder's own file brings its empty block and weeks, and nothing else.
+  const folderFile = await exportFolder(a, folder.id);
+  const d = await phone();
+  await importPlans(d, folderFile, "add");
+  assert.deepEqual(await shape(d), {
+    folders: ["Off season"],
+    weeks: ["Off season / Base / Week 1", "Off season / Base / Week 2"],
+  });
 });

@@ -2850,7 +2850,8 @@ const actions = {
   // starts the share, which browsers only allow right after a tap.
   "export-plans"() {
     const data = dataCache;
-    if (!data?.plans.length) return toast("No plans to export");
+    if (!data?.plans.length && !data?.folders.length && !data?.groups.length)
+      return toast("No plans to export");
     openSheet(
       "Export plans",
       '<p class="muted">Tap one to share its plans file, or the copy button to copy a link to paste into a message. Either goes in on the other phone with Plans › Import plans.</p>',
@@ -2954,8 +2955,7 @@ function exportScopes(data) {
       folder,
       count: data.plans.filter((p) => planFolderId(data, p) === folder.id).length,
     }))
-    .filter((f) => f.count)
-    .sort((a, b) => byName(a.folder, b.folder));
+    .sort((a, b) => byOrder(a.folder, b.folder));
   return [{ folder: null, count: data.plans.length }, ...folders];
 }
 
@@ -2995,10 +2995,11 @@ async function exportPlansFile(data, folderId) {
 /** Ask whether to add or overwrite with plans from a file or link, after a dry
  * run on a copy to say how many are new. */
 async function offerPlansImport(parsed, source) {
-  const { added, updated, skipped } = importPlans(structuredClone(await localData()), parsed);
+  const { added, updated, skipped, groups } = importPlans(structuredClone(await localData()), parsed);
   const news = [
     added && `${added} ${added === 1 ? "is" : "are"} new`,
     updated && `${updated} ${updated === 1 ? "has" : "have"} changed`,
+    groups && (groups === 1 ? "1 new folder, block or week" : `${groups} new folders, blocks or weeks`),
   ].filter(Boolean);
   openSheet(
     "Import plans",
@@ -3022,18 +3023,19 @@ async function finishPlansImport(mode) {
   const parsed = state.pendingPlans;
   if (!parsed) return closeSheet();
   const data = await localData();
-  const { added, updated, skipped } = importPlans(data, parsed, mode);
+  const { added, updated, skipped, groups } = importPlans(data, parsed, mode);
   await writeLocalData(data);
   closeSheet();
   const done = [
     added && `added ${plural(added, "new plan")}`,
     updated && `updated ${updated}`,
+    groups && (groups === 1 ? "1 new folder, block or week" : `${groups} new folders, blocks or weeks`),
     skipped && `${skipped} already up to date`,
   ].filter(Boolean);
   toast(
     mode === "replace"
       ? `Plans replaced with ${plural(added, "plan")}`
-      : added || updated
+      : added || updated || groups
         ? done.join(", ").replace(/^./, (c) => c.toUpperCase())
         : "Nothing new; you have them all",
   );
@@ -3202,7 +3204,11 @@ function ensureUids(data) {
  * `group_uids` the same pair by uid. A plan in a folder (directly, or through
  * its block) carries `folder` and `folder_uid`.
  *
- * With `onlyFolder` (a folder id) just that folder's plans go in the file. */
+ * With `onlyFolder` (a folder id) just that folder's plans go in the file.
+ *
+ * `structure` lists the folders, blocks and weeks themselves (in order), so
+ * ones with no plans in yet travel too: blocks carry their folder and weeks
+ * their block, by name and uid. Files from before it simply lack it. */
 function plansToExport(data, stamp, onlyFolder = null) {
   const groups = Array.isArray(data.groups) ? data.groups : [];
   const folders = Array.isArray(data.folders) ? data.folders : [];
@@ -3219,11 +3225,33 @@ function plansToExport(data, stamp, onlyFolder = null) {
     onlyFolder == null
       ? data.plans
       : data.plans.filter((plan) => folderOf(plan)?.id === onlyFolder);
+  const inScope = (folderId) => onlyFolder == null || (folderId ?? null) === onlyFolder;
+  const sorted = (list) => [...list].sort(byOrder);
+  const blocks = sorted(groups.filter((g) => g.parent_id == null && inScope(g.folder_id)));
+  const folderNamed = (id) => folders.find((f) => f.id === id);
+  const structure = {
+    folders: sorted(folders.filter((f) => inScope(f.id))).map((f) => ({ uid: f.uid || null, name: f.name })),
+    blocks: blocks.map((b) => ({
+      uid: b.uid || null,
+      name: b.name,
+      folder: folderNamed(b.folder_id)?.name ?? null,
+      folder_uid: folderNamed(b.folder_id)?.uid ?? null,
+    })),
+    weeks: blocks.flatMap((b) =>
+      sorted(groups.filter((g) => g.parent_id === b.id)).map((w) => ({
+        uid: w.uid || null,
+        name: w.name,
+        block: b.name,
+        block_uid: b.uid || null,
+      })),
+    ),
+  };
   return {
     kind: "gym-planner-plans",
     version: 1,
     exported_at: stamp,
     ...(only ? { folder: { uid: only.uid || null, name: only.name } } : {}),
+    structure,
     plans: plans.map((plan) => {
       const path = groupPath(plan.group_id);
       const folder = folderOf(plan);
@@ -3255,15 +3283,16 @@ function plansToExport(data, stamp, onlyFolder = null) {
 }
 
 /** The plans in a plans export (or a full backup), in the export shape. */
-function importedPlansList(imported) {
+/** A plans export (or a full backup, turned into one). */
+function importedPlansFile(imported) {
   if (imported?.kind === "gym-planner-plans" && Array.isArray(imported.plans))
-    return imported.plans;
+    return imported;
   if (
     imported?.version === 1 &&
     Array.isArray(imported.plans) &&
     Array.isArray(imported.exercises)
   )
-    return plansToExport(imported, "").plans;
+    return plansToExport(imported, "");
   throw new Error("That file has no Raw Muscle plans");
 }
 
@@ -3280,10 +3309,13 @@ function importedPlansList(imported) {
  * list as it is. Logged workouts are kept either way.
  *
  * Exercises are matched by name and created when missing.
- * Returns { added, updated, skipped }. */
+ * Returns { added, updated, skipped, groups } (groups: new folders, blocks
+ * and weeks). */
 function importPlans(data, imported, mode = "add") {
-  const plans = importedPlansList(imported);
+  const file = importedPlansFile(imported);
+  const plans = file.plans;
   ensureUids(data);
+  const groupsBefore = data.groups.length + data.folders.length;
   if (mode === "replace") {
     data.plans = [];
     data.groups = [];
@@ -3334,40 +3366,57 @@ function importPlans(data, imported, mode = "add") {
   };
   /** Find or create the block and week a plan was exported from. A new block
    * goes in `folderId`; a block of the same name only matches in that folder. */
+  /** Find or create a block (parentId null, in `folderId`) or a week (in
+   * block `parentId`). A block of the same name only matches in that folder. */
+  const importedGroupId = (rawName, uid, parentId, folderId) => {
+    const name = String(rawName || "").trim();
+    if (!name) return null;
+    uid = typeof uid === "string" && uid ? uid : null;
+    const atLevel = data.groups.filter((g) =>
+      parentId == null ? g.parent_id == null : g.parent_id === parentId,
+    );
+    let group =
+      (uid && atLevel.find((g) => g.uid === uid)) ||
+      atLevel.find(
+        (g) =>
+          g.name.toLowerCase() === name.toLowerCase() &&
+          (parentId != null || (g.folder_id ?? null) === folderId),
+      );
+    if (group) {
+      // Matched by name: take the file's uid so a later rename still matches.
+      if (uid && group.uid !== uid && !uidsInUse().has(uid)) group.uid = uid;
+    } else {
+      group = { id: data.nextIds.group++, uid: takeUid(uid), name, parent_id: parentId };
+      if (parentId == null) group.folder_id = folderId;
+      data.groups.push(group);
+    }
+    return group.id;
+  };
+  /** Find or create the block and week a plan was exported from. */
   const importedWeekId = (path, uids, folderId) => {
     if (!Array.isArray(path) || path.length !== 2) return null;
-    let parentId = null;
-    for (let i = 0; i < 2; i++) {
-      const name = String(path[i] || "").trim();
-      if (!name) return null;
-      const uid = Array.isArray(uids) ? uids[i] : null;
-      const atLevel = data.groups.filter((g) =>
-        i === 0 ? g.parent_id == null : g.parent_id === parentId,
-      );
-      let group =
-        (uid && atLevel.find((g) => g.uid === uid)) ||
-        atLevel.find(
-          (g) =>
-            g.name.toLowerCase() === name.toLowerCase() &&
-            (i > 0 || (g.folder_id ?? null) === folderId),
-        );
-      if (group) {
-        // Matched by name: take the file's uid so a later rename still matches.
-        if (uid && group.uid !== uid && !uidsInUse().has(uid)) group.uid = uid;
-      } else {
-        group = {
-          id: data.nextIds.group++,
-          uid: takeUid(uid),
-          name,
-          parent_id: parentId,
-        };
-        if (i === 0) group.folder_id = folderId;
-        data.groups.push(group);
-      }
-      parentId = group.id;
-    }
-    return parentId;
+    const blockId = importedGroupId(path[0], Array.isArray(uids) ? uids[0] : null, null, folderId);
+    if (blockId == null) return null;
+    return importedGroupId(path[1], Array.isArray(uids) ? uids[1] : null, blockId, null);
   };
+
+  // Folders, blocks and weeks first, so empty ones come across too.
+  const structure = file.structure && typeof file.structure === "object" ? file.structure : {};
+  const list = (key) => (Array.isArray(structure[key]) ? structure[key] : []);
+  list("folders").forEach((f) => importedFolderId(f?.name, f?.uid));
+  const blockIds = new Map(); // the file's block uid, or name, to its id here
+  list("blocks").forEach((b) => {
+    const folderId = b?.folder ? importedFolderId(b.folder, b.folder_uid) : null;
+    const id = importedGroupId(b?.name, b?.uid, null, folderId);
+    if (id == null) return;
+    if (b.uid) blockIds.set(`uid:${b.uid}`, id);
+    blockIds.set(`name:${String(b.name).trim().toLowerCase()}`, id);
+  });
+  list("weeks").forEach((w) => {
+    const blockId =
+      blockIds.get(`uid:${w?.block_uid}`) ?? blockIds.get(`name:${String(w?.block || "").trim().toLowerCase()}`);
+    if (blockId != null) importedGroupId(w.name, w.uid, blockId, null);
+  });
   /** Plans side by side: the same week, or (outside weeks) the same folder. */
   const sameSpot = (p, groupId, folderId) =>
     (p.group_id ?? null) === groupId &&
@@ -3461,7 +3510,13 @@ function importPlans(data, imported, mode = "add") {
     });
     added++;
   });
-  return { added, updated, skipped: plans.length - added - updated };
+  return {
+    added,
+    updated,
+    skipped: plans.length - added - updated,
+    // New folders, blocks and weeks, with plans in or not.
+    groups: data.groups.length + data.folders.length - groupsBefore,
+  };
 }
 
 /** Check a parsed backup and rebuild it as a clean data object. */

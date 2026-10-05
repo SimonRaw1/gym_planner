@@ -422,7 +422,8 @@ const actions = {
 
   export() {
     const file = plansFile();
-    if (!file.plans.length) return toast("Name a plan first");
+    if (!file.plans.length && !file.structure.blocks.length && !file.structure.folders.length)
+      return toast("Add a folder, block or plan first");
     const url = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: "application/json" }));
     const link = document.createElement("a");
     link.href = url;
@@ -433,7 +434,8 @@ const actions = {
   },
   async "copy-link"() {
     const file = plansFile();
-    if (!file.plans.length) return toast("Name a plan first");
+    if (!file.plans.length && !file.structure.blocks.length && !file.structure.folders.length)
+      return toast("Add a folder, block or plan first");
     const link = await plansLink(file);
     if (link.length > 60000) return toast("Too many plans for one link; export a file instead");
     await navigator.clipboard.writeText(link);
@@ -530,7 +532,22 @@ function plansFile() {
           }),
       };
     });
-  return { kind: "gym-planner-plans", version: 1, exported_at: new Date().toISOString(), plans };
+  // The folders, blocks and weeks themselves, so empty ones go too.
+  const folderOf = (uid) => state.folders.find((f) => f.uid === uid);
+  const structure = {
+    folders: state.folders.map((f) => ({ uid: f.uid, name: f.name })),
+    blocks: state.blocks.map((b) => ({
+      uid: b.uid,
+      name: b.name,
+      folder: folderOf(b.folder)?.name ?? null,
+      folder_uid: folderOf(b.folder)?.uid ?? null,
+    })),
+    weeks: state.weeks.map((w) => {
+      const block = state.blocks.find((b) => b.uid === w.block);
+      return { uid: w.uid, name: w.name, block: block?.name ?? null, block_uid: w.block };
+    }),
+  };
+  return { kind: "gym-planner-plans", version: 1, exported_at: new Date().toISOString(), structure, plans };
 }
 
 /** The phone's plans link for a plans file: deflated, base64url, after #plans=
@@ -557,6 +574,23 @@ function openPlansFile(file) {
     if (!item) list.push((item = { uid: uid || newUid(), name, ...extra }));
     return item;
   };
+  // Folders, blocks and weeks first (files from before this lack them), so
+  // empty ones open too.
+  const structure = file.structure || {};
+  const listed = (key) => (Array.isArray(structure[key]) ? structure[key] : []);
+  listed("folders").forEach((f) => f?.name && findOrAdd(next.folders, f.uid, String(f.name), {}));
+  const fileBlocks = new Map(); // the file's block uid, or name, to the block here
+  listed("blocks").forEach((b) => {
+    if (!b?.name) return;
+    const folder = b.folder ? findOrAdd(next.folders, b.folder_uid, String(b.folder), {}) : null;
+    const block = findOrAdd(next.blocks, b.uid, String(b.name), { folder: folder ? folder.uid : null });
+    if (b.uid) fileBlocks.set(`uid:${b.uid}`, block);
+    fileBlocks.set(`name:${b.name}`, block);
+  });
+  listed("weeks").forEach((w) => {
+    const block = fileBlocks.get(`uid:${w?.block_uid}`) || fileBlocks.get(`name:${w?.block}`);
+    if (block && w.name) findOrAdd(next.weeks, w.uid, String(w.name), { block: block.uid });
+  });
   file.plans.forEach((p) => {
     const folder = p.folder ? findOrAdd(next.folders, p.folder_uid, String(p.folder), {}) : null;
     let place = folder ? `f:${folder.uid}` : "";
@@ -597,7 +631,7 @@ $("#import-file").addEventListener("change", async (ev) => {
       throw new Error("That file has no Raw Muscle plans");
     }
     const next = openPlansFile(file);
-    if (state.plans.length && !(await sure("Replace what's here with this file's plans?", "Replace"))) return;
+    if ((state.plans.length || state.folders.length || state.blocks.length) && !(await sure("Replace what's here with this file's plans?", "Replace"))) return;
     state = next;
     render();
     toast(`Opened ${next.plans.length} plan${next.plans.length === 1 ? "" : "s"}`);

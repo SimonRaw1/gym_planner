@@ -41,6 +41,9 @@ stays on their own phone, with no accounts.
   desktop builder's Copy link): the plans export, deflate-compressed and
   base64url-encoded after `#plans=`, so it never reaches the server. Keep that
   format readable by unpackPlans() when the export shape changes.
+- A plans file lists its plans and, under `structure`, its folders, blocks and
+  weeks (so empty ones travel too). Both are optional on import, so files
+  from before `structure` still work; keep it that way.
 - Weights are stored in kg. The kg/lb setting (localStorage pref `unit`) only
   changes display and entry: show weights with fmtWeight() and unitLabel(), and
   convert typed weights with toKg().
