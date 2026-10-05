@@ -1222,6 +1222,9 @@ body.gated .tabbar {
 #view-plans:not(.building) .build-only {
   display: none !important;
 }
+#view-plans.building .view-only {
+  display: none !important;
+}
 .plans-foot .btn:first-child {
   flex: 1;
 }

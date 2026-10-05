@@ -1812,7 +1812,9 @@ function planCardHtml(p) {
           <div class="row${completed ? " build-only" : ""}" style="margin-top:12px">
             ${completed ? "" : `<button class="btn small ghost build-only" data-action="edit-plan" data-id="${p.id}">Edit</button>`}
             <button class="btn small danger build-only" data-action="del-plan" data-id="${p.id}">Delete</button>
-            <button class="btn small ghost${completed ? " build-only" : ""}" style="margin-left:auto" data-action="${completed ? "copy-plan" : "start-plan"}" data-id="${p.id}">${completed ? "Copy" : "Start"}</button>
+            ${completed
+              ? `<button class="btn small ghost build-only" style="margin-left:auto" data-action="copy-plan" data-id="${p.id}">Copy</button>`
+              : `<button class="btn small view-only" style="margin-left:auto" data-action="start-plan" data-id="${p.id}">Start</button>`}
           </div>
         </div>`;
 }
