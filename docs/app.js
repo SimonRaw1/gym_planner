@@ -709,7 +709,6 @@ async function api(path, options = {}) {
       sessions_7d: recent.length,
       sets_7d: sets.length,
       reps_7d: sets.reduce((sum, set) => sum + set.reps, 0),
-      volume_7d: sets.reduce((sum, set) => sum + set.reps * set.weight, 0),
       personal_bests: best,
       recent_pbs: recentPbs(data, cutoff),
     };
@@ -1556,7 +1555,7 @@ function renderCurrentSession() {
     </button>`;
 }
 
-/* The Train page fills the screen and no more: Heaviest ever always shows
+/* The Train page fills the screen and no more: Heaviest Lifts always shows
  * 3, this week's PBs fill the room left (at least 1 when there are any), and
  * any room after that goes to more heaviest-ever sets. */
 function renderStats(stats) {
@@ -1576,17 +1575,14 @@ function renderStats(stats) {
     <div class="stack tight" style="margin-top:8px">${pbs.slice(0, 1).map(pbRow).join("")}</div>`;
   $("#heaviest").hidden = !best.length;
   $("#heaviest").innerHTML = `
-    <h2>Heaviest ever</h2>
+    <h2>Heaviest Lifts</h2>
     <div class="stack tight" style="margin-top:8px">${best.slice(0, 3).map(bestRow).join("")}</div>`;
-  const tile = (value, label) =>
-    `<div class="stat"><strong>${value}</strong><span class="muted">${label}</span></div>`;
   $("#stats").innerHTML = `
     <h2>Last 7 days</h2>
-    <div class="stat-grid">
-      ${tile(stats.sessions_7d, stats.sessions_7d === 1 ? "session" : "sessions")}
-      ${tile(stats.sets_7d, stats.sets_7d === 1 ? "set" : "sets")}
-      ${tile(stats.reps_7d, stats.reps_7d === 1 ? "rep" : "reps")}
-      ${tile(fmtWeight(stats.volume_7d), `${unitLabel()} volume`)}
+    <div class="row wrap" style="margin-top:8px">
+      <span class="pill">${plural(stats.sessions_7d, "session")}</span>
+      <span class="pill">${plural(stats.sets_7d, "set")}</span>
+      <span class="pill">${plural(stats.reps_7d, "rep")}</span>
     </div>`;
 
   // Then one row at a time while the page still fits on screen.

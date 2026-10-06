@@ -1258,28 +1258,3 @@ body.gated .tabbar {
   border-color: var(--accent);
   white-space: nowrap;
 }
-
-/* Last 7 days: four numbers in a row. */
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-top: 10px;
-}
-.stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 10px 4px;
-  background: var(--surface-2);
-  border-radius: 10px;
-  text-align: center;
-}
-.stat strong {
-  font-size: 1.15rem;
-  font-variant-numeric: tabular-nums;
-}
-.stat .muted {
-  font-size: 0.72rem;
-}

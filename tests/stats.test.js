@@ -80,7 +80,7 @@ test("in a session's PBs, Squat, Bench and Deadlift come first", async () => {
   assert.equal(shown[0], "Back Squat 110x5");
 });
 
-test("Heaviest ever lists every exercise, heaviest first", async () => {
+test("Heaviest Lifts lists every exercise, heaviest first", async () => {
   const app = await phoneWith([
     [2, [["Deadlift", 180, 3], ["Back Squat", 150, 3], ["Bench Press", 110, 3], ["Overhead Press", 70, 3]]],
   ]);
