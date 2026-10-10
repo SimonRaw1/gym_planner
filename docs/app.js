@@ -1537,10 +1537,16 @@ function renderTrain() {
   }
 }
 
+/** How long from `start` to `end` (default now): "52 min", "1 h 5 min". */
+function durationLabel(start, end) {
+  const to = end ? parseTs(end).getTime() : Date.now();
+  const mins = Math.max(0, Math.round((to - parseTs(start).getTime()) / 60000));
+  return mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ""}`;
+}
+
 function sessionMeta(s) {
-  const mins = Math.round((Date.now() - parseTs(s.started_at).getTime()) / 60000);
   const volume = s.sets.reduce((sum, x) => sum + x.reps * x.weight, 0);
-  return `${mins} min · ${s.sets.length} sets · ${fmtWeight(volume)} ${unitLabel()}`;
+  return `${durationLabel(s.started_at)} · ${s.sets.length} sets · ${fmtWeight(volume)} ${unitLabel()}`;
 }
 
 function renderCurrentSession() {
@@ -2192,7 +2198,7 @@ function renderHistory() {
             <div class="grow">
               <h2>${esc(s.name)}</h2>
               <span class="muted">${esc(dayLabel(s.started_at))} &middot;
-                ${s.exercise_count} exercises &middot; ${s.set_count} sets</span>
+                ${s.finished_at ? `${durationLabel(s.started_at, s.finished_at)} &middot; ` : ""}${plural(s.exercise_count, "exercise")} &middot; ${plural(s.set_count, "set")}</span>
             </div>
             <span class="pill">${fmtWeight(s.volume)} ${unitLabel()}</span>
           </div>
@@ -2227,6 +2233,7 @@ async function showSessionDetail(id) {
     `${s.name} — ${dayLabel(s.started_at)}`,
     `
     <div class="stack">
+      <p class="muted">${s.finished_at ? `Took ${durationLabel(s.started_at, s.finished_at)}` : `In progress, ${durationLabel(s.started_at)} so far`}</p>
       ${s.notes ? `<p class="muted">${esc(s.notes)}</p>` : ""}
       ${body}
       <button class="btn danger" data-action="del-session" data-id="${s.id}">Delete session</button>

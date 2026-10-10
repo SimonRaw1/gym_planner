@@ -87,3 +87,11 @@ test("Heaviest Lifts lists every exercise, heaviest first", async () => {
   const best = plain(await app.run('api("/stats")')).personal_bests;
   assert.deepEqual(best.map((b) => b.name), ["Deadlift", "Back Squat", "Bench Press", "Overhead Press"]);
 });
+
+test("a session's duration reads in minutes, then hours and minutes", async () => {
+  const app = loadApp();
+  const label = (start, end) => app.run(`durationLabel(${JSON.stringify(start)}, ${JSON.stringify(end)})`);
+  assert.equal(label("2026-10-01 10:00:00", "2026-10-01 10:52:20"), "52 min");
+  assert.equal(label("2026-10-01 10:00:00", "2026-10-01 11:00:10"), "1 h");
+  assert.equal(label("2026-10-01 10:00:00", "2026-10-01 11:05:00"), "1 h 5 min");
+});
