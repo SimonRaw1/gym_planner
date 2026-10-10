@@ -709,6 +709,7 @@ async function api(path, options = {}) {
       sessions_7d: recent.length,
       sets_7d: sets.length,
       reps_7d: sets.reduce((sum, set) => sum + set.reps, 0),
+      volume_7d: sets.reduce((sum, set) => sum + set.reps * set.weight, 0),
       personal_bests: best,
       recent_pbs: recentPbs(data, cutoff),
     };
@@ -1583,6 +1584,7 @@ function renderStats(stats) {
       <span class="pill">${plural(stats.sessions_7d, "session")}</span>
       <span class="pill">${plural(stats.sets_7d, "set")}</span>
       <span class="pill">${plural(stats.reps_7d, "rep")}</span>
+      <span class="pill">${fmtWeight(stats.volume_7d)} ${unitLabel()} volume</span>
     </div>`;
 
   // Then one row at a time while the page still fits on screen.
