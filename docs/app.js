@@ -1406,7 +1406,10 @@ function stopRest() {
 let wakeLock = null; // WakeLockSentinel, or "pending" while being requested
 
 async function syncWakeLock() {
-  const wanted = !!state.session && document.visibilityState === "visible";
+  const wanted =
+    !!state.session &&
+    document.visibilityState === "visible" &&
+    loadPref("keep-awake", true); // Settings › Keep screen on
   if (wanted && !wakeLock && navigator.wakeLock) {
     wakeLock = "pending";
     try {
@@ -2169,6 +2172,15 @@ function renderUnitButtons() {
   });
 }
 
+function renderKeepAwakeButtons() {
+  const on = loadPref("keep-awake", true);
+  $$('[data-action="set-keep-awake"]').forEach((btn) => {
+    const pressed = !!btn.dataset.on === on;
+    btn.classList.toggle("ghost", !pressed);
+    btn.setAttribute("aria-pressed", String(pressed));
+  });
+}
+
 function themeDots() {
   return `<span class="theme-dots" aria-hidden="true"><i style="background:var(--accent)"></i><i
     style="background:var(--surface-2)"></i><i style="background:var(--good)"></i></span>`;
@@ -2403,6 +2415,12 @@ const actions = {
     );
   },
 
+  "set-keep-awake"(el) {
+    savePref("keep-awake", !!el.dataset.on);
+    renderKeepAwakeButtons();
+    syncWakeLock(); // takes or lets go of the lock straight away mid-workout
+  },
+
   "open-settings"() {
     openSheet(
       "Settings",
@@ -2428,6 +2446,13 @@ const actions = {
             </button>`,
           ).join("")}
         </div>
+        <div class="spread" style="margin-top:14px">
+          <span>Keep screen on<br><span class="muted">during a workout</span></span>
+          <div class="row">
+            <button class="btn small" data-action="set-keep-awake" data-on="1">On</button>
+            <button class="btn small ghost" data-action="set-keep-awake" data-on="">Off</button>
+          </div>
+        </div>
         <h3 style="margin-top:20px">Data backup</h3>
         <p class="muted">Your workouts are kept on this phone only. Export now
           and then to keep a copy; Import replaces everything here.</p>
@@ -2442,6 +2467,7 @@ const actions = {
         </div>`,
     );
     renderUnitButtons();
+    renderKeepAwakeButtons();
     renderThemePicker();
     renderLastBackup();
   },
