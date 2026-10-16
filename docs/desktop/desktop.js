@@ -94,6 +94,28 @@ function copyPlan(plan, place) {
   return { ...structuredClone(plan), uid: newUid(), place };
 }
 
+/** A copy of `week` (with copies of its plans) in block `blockUid`. */
+function copyWeek(week, name, blockUid) {
+  const copy = { uid: newUid(), name, block: blockUid };
+  insertCopy(state.weeks, week, copy, (w) => w.block === blockUid);
+  plansAt(`w:${week.uid}`).forEach((p) => state.plans.push(copyPlan(p, `w:${copy.uid}`)));
+  return copy;
+}
+
+/** Put `copy` right after `original` when it lands beside it, else last. */
+function insertCopy(list, original, copy, beside) {
+  if (beside(original)) list.splice(list.indexOf(original) + 1, 0, copy);
+  else list.push(copy);
+}
+
+/** The next free name among `names` after `name` ("Week 2" → "Week 3"). */
+function freshName(name, names) {
+  const taken = names.map((n) => n.toLowerCase());
+  let next = nextName(name);
+  while (taken.includes(next.toLowerCase())) next = nextName(next);
+  return next;
+}
+
 // ------------------------------------------------------------------ render
 
 function render() {
@@ -134,6 +156,7 @@ function renderTree() {
   const blockHtml = (b) => `
     <div class="branch">${head("block", b, [
       tool("add-week", "+ Week", `data-uid="${b.uid}"`),
+      tool("dup-block", "Duplicate", `data-uid="${b.uid}"`),
       tool("rename-block", "Rename", `data-uid="${b.uid}"`),
       tool("del-block", "&times;", `data-uid="${b.uid}" aria-label="Delete block"`),
     ])}
@@ -292,6 +315,57 @@ async function ask(question, value = "") {
   return typeof answer === "string" ? answer.trim() || null : null;
 }
 
+/** Where a duplicated block or week goes: its name, a folder (if there are
+ * any) and, for a week, a block in that folder. Resolves { name, folder,
+ * block } or null if cancelled. */
+async function askCopyPlace({ title, name, folder, block }) {
+  const forWeek = block !== undefined;
+  const blockOptions = (folderUid, selected) => {
+    const blocks = state.blocks.filter((b) => (b.folder || null) === (folderUid || null));
+    return blocks.length
+      ? blocks
+          .map((b) => `<option value="${b.uid}"${b.uid === selected ? " selected" : ""}>${esc(b.name)}</option>`)
+          .join("")
+      : '<option value="">No blocks in this folder</option>';
+  };
+  const field = (id) => document.getElementById(id);
+  const { value } = await dialog({
+    title,
+    html: `<div class="swal-fields">
+      <label for="copy-name">Name</label>
+      <input id="copy-name" class="swal2-input" value="${esc(name)}">
+      ${state.folders.length ? `<label for="copy-folder">Folder</label>
+      <select id="copy-folder" class="swal2-select"><option value="">No folder</option>${state.folders
+        .map((f) => `<option value="${f.uid}"${f.uid === folder ? " selected" : ""}>${esc(f.name)}</option>`)
+        .join("")}</select>` : ""}
+      ${forWeek ? `<label for="copy-block">Block</label>
+      <select id="copy-block" class="swal2-select">${blockOptions(folder, block)}</select>` : ""}
+      <p class="muted">Copies ${forWeek ? "every plan" : "every week and plan"} in it.</p>
+    </div>`,
+    showCancelButton: true,
+    confirmButtonText: "Duplicate",
+    didOpen: () => {
+      // Picking a folder for a week lists that folder's blocks.
+      field("copy-folder")?.addEventListener("change", (ev) => {
+        if (forWeek) field("copy-block").innerHTML = blockOptions(ev.target.value, null);
+      });
+      field("copy-name").select();
+    },
+    preConfirm: () => {
+      const copyName = field("copy-name").value.trim();
+      const blockUid = forWeek ? field("copy-block").value : null;
+      // Returning false keeps the dialog open with the message.
+      const problem = !copyName ? "Give it a name" : forWeek && !blockUid ? "Pick a block to put it in" : "";
+      if (problem) {
+        Swal.showValidationMessage(problem);
+        return false;
+      }
+      return { name: copyName, folder: field("copy-folder")?.value || null, block: blockUid };
+    },
+  });
+  return value || null;
+}
+
 /** Yes before something that can't be undone; `yes` labels the button. */
 async function sure(text, yes = "Delete") {
   const { isConfirmed } = await dialog({
@@ -349,16 +423,43 @@ const actions = {
   },
 
   // A week's copy goes right after it, with copies of all its plans.
-  "dup-week"(el) {
+  // A week's copy, with copies of its plans, in a block picked by folder
+  // then block (by default its own, right after it).
+  async "dup-week"(el) {
     const week = state.weeks.find((w) => w.uid === el.dataset.uid);
-    const siblings = state.weeks.filter((w) => w.block === week.block).map((w) => w.name.toLowerCase());
-    let name = nextName(week.name);
-    while (siblings.includes(name.toLowerCase())) name = nextName(name);
-    const copy = { uid: newUid(), name, block: week.block };
-    state.weeks.splice(state.weeks.indexOf(week) + 1, 0, copy);
-    plansAt(`w:${week.uid}`).forEach((p) => state.plans.push(copyPlan(p, `w:${copy.uid}`)));
+    const block = state.blocks.find((b) => b.uid === week.block);
+    const siblings = state.weeks.filter((w) => w.block === week.block).map((w) => w.name);
+    const to = await askCopyPlace({
+      title: "Duplicate week",
+      name: freshName(week.name, siblings),
+      folder: block?.folder || null,
+      block: week.block,
+    });
+    if (!to) return;
+    const copy = copyWeek(week, to.name, to.block);
+    reveal(`w:${copy.uid}`);
     render();
-    toast(`${name} added`);
+    toast(`${to.name} added`);
+  },
+
+  // A block's copy, with its weeks and plans, in a folder picked (or none).
+  async "dup-block"(el) {
+    const block = state.blocks.find((b) => b.uid === el.dataset.uid);
+    const siblings = state.blocks.filter((b) => b.folder === block.folder).map((b) => b.name);
+    const to = await askCopyPlace({
+      title: "Duplicate block",
+      name: freshName(block.name, siblings),
+      folder: block.folder || null,
+    });
+    if (!to) return;
+    const copy = { uid: newUid(), name: to.name, folder: to.folder };
+    insertCopy(state.blocks, block, copy, (b) => (b.folder || null) === to.folder);
+    state.weeks
+      .filter((w) => w.block === block.uid)
+      .forEach((w) => copyWeek(w, w.name, copy.uid));
+    reveal("", to.folder, copy.uid);
+    render();
+    toast(`${to.name} added`);
   },
   "dup-plan"() {
     const plan = planById(state.selected);

@@ -1207,6 +1207,32 @@ body.gated .tabbar {
   outline: 2px solid var(--accent-dim);
   box-shadow: none;
 }
+/* A dialog with labelled fields (the desktop builder's Duplicate). */
+.swal-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+.swal-fields label {
+  margin: 8px 0 0;
+}
+.swal-app .swal-fields .swal2-input,
+.swal-app .swal2-select {
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 10px;
+  box-sizing: border-box;
+  font: inherit;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.swal-fields .muted {
+  margin-top: 6px;
+}
 .swal-app .swal2-actions {
   width: 100%;
   flex-wrap: nowrap;
