@@ -193,11 +193,52 @@ body {
   padding: 20px;
   align-self: start;
 }
-/* Folder, then block, then week, side by side. */
-.place-steps {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+/* The plan editor's Where line. */
+.where-row {
+  display: flex;
+  align-items: center;
   gap: 12px;
+}
+
+/* The Move / Copy / Duplicate dialog: browse into folders, blocks, weeks. */
+.spot-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.spot-back {
+  font-size: 0.9rem;
+}
+.spot-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow: auto;
+}
+.spot-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.spot-row:hover {
+  border-color: var(--accent-dim);
+}
+.spot-row.folder {
+  border-left: 3px solid var(--accent-dim);
 }
 .editor-grid {
   display: grid;

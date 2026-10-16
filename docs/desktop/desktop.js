@@ -207,32 +207,18 @@ function placeParts(place) {
   return { folder: folder || null, block: block?.uid || null, week: week?.uid || null };
 }
 
-/** The place once one step (folder, block or week) is changed to `value`:
- * a blank step leaves the plan in the step above. */
-function placeAfter(step, value, place) {
-  const { folder, block } = placeParts(place);
-  if (step === "folder") return value ? `f:${value}` : "";
-  if (step === "block") return value ? `b:${value}` : folder ? `f:${folder}` : "";
-  return value ? `w:${value}` : `b:${block}`;
-}
+/** A spot ({ folder, block, week } uids) as a plan's place string. */
+const placeOfSpot = (at) =>
+  at.week ? `w:${at.week}` : at.block ? `b:${at.block}` : at.folder ? `f:${at.folder}` : "";
 
-/* Where a plan goes, picked a step at a time: a folder (or none), then a
- * block in it, then a week in that block; stopping at a step puts the plan
- * there. Each step is a select with data-step; `prefix` keeps ids apart. */
-function placeStepsHtml(place, prefix, cls = "") {
-  const { folder, block, week } = placeParts(place);
-  const step = (name, label, blank, items, selected) => `
-    <div><label for="${prefix}-${name}">${label}</label>
-      <select id="${prefix}-${name}" class="${cls}" data-step="${name}"><option value="">${blank}</option>${items
-        .map((x) => `<option value="${x.uid}"${x.uid === selected ? " selected" : ""}>${esc(x.name)}</option>`)
-        .join("")}</select></div>`;
-  const blocks = state.blocks.filter((b) => (b.folder || null) === folder);
-  const weeks = block ? state.weeks.filter((w) => w.block === block) : [];
-  return (
-    (state.folders.length ? step("folder", "Folder", "No folder", state.folders, folder) : "") +
-    (blocks.length ? step("block", "Block", folder ? "Just in the folder" : "No block", blocks, block) : "") +
-    (weeks.length ? step("week", "Week", "Just in the block", weeks, week) : "")
-  );
+/** "Summer › Block 1 › Week 2", or "Not in a folder" at the top. */
+function spotLabel(at) {
+  const names = [
+    state.folders.find((f) => f.uid === at.folder)?.name,
+    state.blocks.find((b) => b.uid === at.block)?.name,
+    state.weeks.find((w) => w.uid === at.week)?.name,
+  ].filter(Boolean);
+  return names.length ? names.join(" › ") : "Not in a folder";
 }
 
 function renderEditor() {
@@ -265,7 +251,11 @@ function renderEditor() {
   $("#editor").innerHTML = `
     <div><label for="plan-name">Plan name</label>
       <input id="plan-name" data-plan="name" value="${esc(plan.name)}" placeholder="Push day"></div>
-    <div class="place-steps">${placeStepsHtml(plan.place, "plan")}</div>
+    <div class="where-row">
+      <span class="muted">Where</span>
+      <strong class="grow">${esc(spotLabel(placeParts(plan.place)))}</strong>
+      <button class="btn small ghost" data-act="move-plan" data-uid="${plan.uid}">Change</button>
+    </div>
     <div><label for="plan-notes">Notes</label>
       <input id="plan-notes" data-plan="notes" value="${esc(plan.notes)}" placeholder="optional"></div>
     <table class="items">
@@ -286,11 +276,6 @@ function renderEditor() {
 $("#editor").addEventListener("input", (ev) => {
   const plan = planById(state.selected);
   if (!plan) return;
-  if (ev.target.dataset.step) {
-    plan.place = placeAfter(ev.target.dataset.step, ev.target.value, plan.place);
-    reveal(plan.place); // keep the plan in view where it went
-    return render(); // the next step's choices change with this one
-  }
   const field = ev.target.dataset.plan;
   if (field) {
     plan[field] = ev.target.value;
@@ -336,74 +321,72 @@ async function ask(question, value = "") {
   return typeof answer === "string" ? answer.trim() || null : null;
 }
 
-/** Where a duplicated block or week goes: its name, a folder (if there are
- * any) and, for a week, a block in that folder. Resolves { name, folder,
- * block } or null if cancelled. */
-async function askCopyPlace({ title, name, folder, block }) {
-  const forWeek = block !== undefined;
-  const blockOptions = (folderUid, selected) => {
-    const blocks = state.blocks.filter((b) => (b.folder || null) === (folderUid || null));
-    return blocks.length
-      ? blocks
-          .map((b) => `<option value="${b.uid}"${b.uid === selected ? " selected" : ""}>${esc(b.name)}</option>`)
-          .join("")
-      : '<option value="">No blocks in this folder</option>';
-  };
-  const field = (id) => document.getElementById(id);
-  const { value } = await dialog({
-    title,
-    html: `<div class="swal-fields">
-      <label for="copy-name">Name</label>
-      <input id="copy-name" class="swal2-input" value="${esc(name)}">
-      ${state.folders.length ? `<label for="copy-folder">Folder</label>
-      <select id="copy-folder" class="swal2-select"><option value="">No folder</option>${state.folders
-        .map((f) => `<option value="${f.uid}"${f.uid === folder ? " selected" : ""}>${esc(f.name)}</option>`)
-        .join("")}</select>` : ""}
-      ${forWeek ? `<label for="copy-block">Block</label>
-      <select id="copy-block" class="swal2-select">${blockOptions(folder, block)}</select>` : ""}
-      <p class="muted">Copies ${forWeek ? "every plan" : "every week and plan"} in it.</p>
-    </div>`,
-    showCancelButton: true,
-    confirmButtonText: "Duplicate",
-    didOpen: () => {
-      // Picking a folder for a week lists that folder's blocks.
-      field("copy-folder")?.addEventListener("change", (ev) => {
-        if (forWeek) field("copy-block").innerHTML = blockOptions(ev.target.value, null);
-      });
-      field("copy-name").select();
-    },
-    preConfirm: () => {
-      const copyName = field("copy-name").value.trim();
-      const blockUid = forWeek ? field("copy-block").value : null;
-      // Returning false keeps the dialog open with the message.
-      const problem = !copyName ? "Give it a name" : forWeek && !blockUid ? "Pick a block to put it in" : "";
-      if (problem) {
-        Swal.showValidationMessage(problem);
-        return false;
-      }
-      return { name: copyName, folder: field("copy-folder")?.value || null, block: blockUid };
-    },
-  });
-  return value || null;
-}
+/* Where something goes, picked the way the tree is laid out: folders (and
+ * blocks outside folders) at the top; click one to go into it, click a block
+ * to see its weeks, and the button puts it wherever you are. `depth` is as
+ * far down as it can go ("folder" for a block, "block" for a week, "week"
+ * for a plan), `need` how far down it must be (a week needs a block). With
+ * `name`, it asks for one too. Resolves { name, at } or null if cancelled. */
+const LEVELS = ["top", "folder", "block", "week"];
+const levelOf = (at) => (at.week ? "week" : at.block ? "block" : at.folder ? "folder" : "top");
 
-/** Where a plan goes (and, for a copy, its name), a step at a time: folder,
- * block, week. Resolves { name, place } or null if cancelled. */
-async function askPlanPlace({ title, name, place, yes }) {
+async function askSpot({ title, yes, depth, need = "top", name, note, at }) {
+  at = { folder: null, block: null, week: null, ...at };
   const field = (id) => document.getElementById(id);
+  const blocksIn = (folder) => state.blocks.filter((b) => (b.folder || null) === folder);
+  const view = () => {
+    const level = levelOf(at);
+    const deeper = LEVELS.indexOf(level) < LEVELS.indexOf(depth);
+    const rows = !deeper
+      ? []
+      : level === "top"
+        ? [...state.folders.map((f) => ["folder", f]), ...(depth === "folder" ? [] : blocksIn(null).map((b) => ["block", b]))]
+        : level === "folder"
+          ? blocksIn(at.folder).map((b) => ["block", b])
+          : state.weeks.filter((w) => w.block === at.block).map((w) => ["week", w]);
+    const empty = { top: "No folders yet.", folder: "No blocks in this folder.", block: "No weeks in this block." }[level];
+    const names = spotLabel(at).split(" › ");
+    const above = level === "top" ? [] : ["All plans", ...names.slice(0, -1)];
+    const ok = LEVELS.indexOf(level) >= LEVELS.indexOf(need);
+    Swal.getConfirmButton().disabled = !ok;
+    return `
+      <div class="spot-head">
+        ${level === "top" ? "" : '<button type="button" class="tool spot-back" data-up aria-label="Back">&lsaquo; Back</button>'}
+        <div class="grow">
+          ${above.length ? `<div class="muted">${above.map(esc).join(" › ")}</div>` : ""}
+          <strong>${esc(level === "top" ? "All plans" : names.at(-1))}</strong>
+        </div>
+      </div>
+      <div class="spot-rows">${
+        rows
+          .map(([kind, g]) => `<button type="button" class="spot-row ${kind}" data-into="${kind}" data-uid="${g.uid}"><span class="grow">${esc(g.name)}</span><span aria-hidden="true">&rsaquo;</span></button>`)
+          .join("") || (deeper ? `<p class="muted">${empty}</p>` : "")
+      }</div>
+      ${ok ? "" : `<p class="muted">Go into a ${need} to put it there.</p>`}`;
+  };
   const { value } = await dialog({
     title,
     html: `<div class="swal-fields">
       ${name === undefined ? "" : `<label for="copy-name">Name</label>
       <input id="copy-name" class="swal2-input" value="${esc(name)}">`}
-      <div id="copy-steps" class="swal-fields">${placeStepsHtml(place, "copy", "swal2-select")}</div>
+      ${note ? `<p class="muted">${note}</p>` : ""}
+      <div id="spot-nav"></div>
     </div>`,
     showCancelButton: true,
-    confirmButtonText: yes,
+    confirmButtonText: `${yes} here`,
     didOpen: () => {
-      field("copy-steps").addEventListener("change", (ev) => {
-        place = placeAfter(ev.target.dataset.step, ev.target.value, place);
-        field("copy-steps").innerHTML = placeStepsHtml(place, "copy", "swal2-select");
+      field("spot-nav").innerHTML = view();
+      field("spot-nav").addEventListener("click", (ev) => {
+        const into = ev.target.closest("[data-into]");
+        if (into) {
+          const uid = into.dataset.uid;
+          if (into.dataset.into === "folder") at = { folder: uid, block: null, week: null };
+          else if (into.dataset.into === "block") at = { ...at, block: uid, week: null };
+          else at = { ...at, week: uid };
+        } else if (ev.target.closest("[data-up]")) {
+          at = at.week ? { ...at, week: null } : at.block ? { ...at, block: null } : { folder: null, block: null, week: null };
+        } else return;
+        field("spot-nav").innerHTML = view();
       });
       field("copy-name")?.select();
     },
@@ -413,7 +396,7 @@ async function askPlanPlace({ title, name, place, yes }) {
         Swal.showValidationMessage("Give it a name"); // false keeps the dialog open
         return false;
       }
-      return { name: copyName, place };
+      return { name: copyName, at: { ...at } };
     },
   });
   return value || null;
@@ -475,38 +458,44 @@ const actions = {
     render();
   },
 
-  // A week's copy goes right after it, with copies of all its plans.
-  // A week's copy, with copies of its plans, in a block picked by folder
-  // then block (by default its own, right after it).
+  // A week's copy, with copies of its plans, in a block browsed to (by
+  // default its own, right after it).
   async "dup-week"(el) {
     const week = state.weeks.find((w) => w.uid === el.dataset.uid);
     const block = state.blocks.find((b) => b.uid === week.block);
     const siblings = state.weeks.filter((w) => w.block === week.block).map((w) => w.name);
-    const to = await askCopyPlace({
+    const to = await askSpot({
       title: "Duplicate week",
+      yes: "Duplicate",
+      depth: "block",
+      need: "block",
       name: freshName(week.name, siblings),
-      folder: block?.folder || null,
-      block: week.block,
+      note: "Copies every plan in it.",
+      at: { folder: block?.folder || null, block: week.block },
     });
     if (!to) return;
-    const copy = copyWeek(week, to.name, to.block);
+    const copy = copyWeek(week, to.name, to.at.block);
     reveal(`w:${copy.uid}`);
     render();
     toast(`${to.name} added`);
   },
 
-  // A block's copy, with its weeks and plans, in a folder picked (or none).
+  // A block's copy, with its weeks and plans, in a folder browsed to (or none).
   async "dup-block"(el) {
     const block = state.blocks.find((b) => b.uid === el.dataset.uid);
     const siblings = state.blocks.filter((b) => b.folder === block.folder).map((b) => b.name);
-    const to = await askCopyPlace({
+    const to = await askSpot({
       title: "Duplicate block",
+      yes: "Duplicate",
+      depth: "folder",
       name: freshName(block.name, siblings),
-      folder: block.folder || null,
+      note: "Copies every week and plan in it.",
+      at: { folder: block.folder || null },
     });
     if (!to) return;
-    const copy = { uid: newUid(), name: to.name, folder: to.folder };
-    insertCopy(state.blocks, block, copy, (b) => (b.folder || null) === to.folder);
+    const folder = to.at.folder;
+    const copy = { uid: newUid(), name: to.name, folder };
+    insertCopy(state.blocks, block, copy, (b) => (b.folder || null) === folder);
     state.weeks
       .filter((w) => w.block === block.uid)
       .forEach((w) => copyWeek(w, w.name, copy.uid));
@@ -515,12 +504,12 @@ const actions = {
     render();
     toast(`${to.name} added`);
   },
-  // Move a plan to another week or folder, or out of both.
+  // Move a plan: browse to a week, a block or a folder, and move it there.
   async "move-plan"(el) {
     const plan = planById(el.dataset.uid);
-    const to = await askPlanPlace({ title: `Move ${plan.name || "plan"}`, place: plan.place, yes: "Move" });
+    const to = await askSpot({ title: `Move ${plan.name || "plan"}`, yes: "Move", depth: "week", at: placeParts(plan.place) });
     if (!to) return;
-    plan.place = to.place;
+    plan.place = placeOfSpot(to.at);
     reveal(plan.place);
     render();
     toast("Plan moved");
@@ -530,15 +519,17 @@ const actions = {
   async "copy-plan"(el) {
     const plan = planById(el.dataset.uid);
     const siblings = plansAt(plan.place).map((p) => p.name);
-    const to = await askPlanPlace({
+    const to = await askSpot({
       title: "Copy plan",
-      name: freshName(plan.name || "Plan", siblings),
-      place: plan.place,
       yes: "Copy",
+      depth: "week",
+      name: freshName(plan.name || "Plan", siblings),
+      at: placeParts(plan.place),
     });
     if (!to) return;
-    const copy = { ...copyPlan(plan, to.place), name: to.name };
-    insertCopy(state.plans, plan, copy, (p) => p.place === to.place);
+    const place = placeOfSpot(to.at);
+    const copy = { ...copyPlan(plan, place), name: to.name };
+    insertCopy(state.plans, plan, copy, (p) => p.place === place);
     state.selected = copy.uid;
     reveal(copy.place);
     render();

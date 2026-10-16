@@ -895,10 +895,8 @@ function openSheet(title, html, foot = "") {
   fitSheet();
 }
 
-/** New sheet contents; a place picker in them starts on its plan's place. */
 function setSheetBody(html) {
   $("#sheet-body").innerHTML = html;
-  startPlacePicker();
 }
 
 function closeSheet() {
@@ -1961,7 +1959,10 @@ function planEditorHtml() {
         <input id="draft-name" value="${esc(d.name)}" placeholder="Push day"></div>
       <div><label>Notes</label>
         <input id="draft-notes" value="${esc(d.notes)}" placeholder="optional"></div>
-      ${placePickerHtml(d.group_id, d.folder_id)}
+      ${state.folders.length || state.groups.length ? `<div class="spread where-row">
+        <span><span class="muted">Where</span><br><strong>${esc(spotLabel(spotFor(d.group_id, d.folder_id)))}</strong></span>
+        <button class="btn small ghost" data-action="draft-where">Change</button>
+      </div>` : ""}
       ${items ? `<div class="stack" data-drag-list="plan">${items}</div>` : '<p class="muted">No exercises yet.</p>'}
       <button class="btn ghost" data-action="draft-add">+ Add exercise</button>
     </div>`;
@@ -1970,68 +1971,108 @@ function planEditorHtml() {
 const PLAN_SAVE =
   '<button class="btn good" data-action="draft-save">Save plan</button>';
 
-/* Where a plan goes, picked a step at a time: a folder (or none), then a
- * block in it, then a week in that block. Stopping at any step puts the plan
- * there: in the folder, straight in the block, or in the week. */
-function placePickerHtml(groupId, folderId) {
+/* Where something goes, picked the way the Plans tab is browsed: folders
+ * (and blocks outside folders) at the top; tap one to go into it, tap a
+ * block to see its weeks, and the button puts it wherever you are. `depth`
+ * is as far down as it can go ("folder" for a block, "block" for a week,
+ * "week" for a plan), and `need` how far down it must be (a week needs a
+ * block). A spot is { folder, block, week }, each an id or null. */
+const LEVELS = ["top", "folder", "block", "week"];
+const levelOf = (at) => (at.week ? "week" : at.block ? "block" : at.folder ? "folder" : "top");
+
+/** The spot a plan (or the thing inside `groupId`/`folderId`) is in. */
+function spotFor(groupId, folderId) {
   const group = state.groups.find((g) => g.id === groupId);
-  const block = group && (group.parent_id == null ? group : state.groups.find((g) => g.id === group.parent_id));
-  const week = group && group.parent_id != null ? group : null;
-  const folder = block ? (block.folder_id ?? null) : (folderId ?? null);
-  return `
-    <div class="stack tight place-picker">
-      ${state.folders.length ? `<div><label for="pick-folder">Folder</label>
-        <select id="pick-folder"><option value="">No folder</option>${state.folders
-          .map((f) => `<option value="${f.id}"${f.id === folder ? " selected" : ""}>${esc(f.name)}</option>`)
-          .join("")}</select></div>` : ""}
-      <div id="pick-block-row"></div>
-      <div id="pick-week-row"></div>
-    </div>
-    <template id="pick-start" data-block="${block?.id ?? ""}" data-week="${week?.id ?? ""}"></template>`;
+  if (!group) return { folder: folderId ?? null, block: null, week: null };
+  const block = group.parent_id == null ? group : state.groups.find((g) => g.id === group.parent_id);
+  return {
+    folder: block?.folder_id ?? null,
+    block: block?.id ?? null,
+    week: group.parent_id == null ? null : group.id,
+  };
 }
 
-/** Fill the block and week steps for what's picked so far. */
-function fillPlacePicker(blockId = null, weekId = null) {
-  const folderEl = $("#pick-folder");
-  const folder = folderEl?.value ? Number(folderEl.value) : null;
-  const blocks = state.groups.filter((g) => g.parent_id == null && (g.folder_id ?? null) === folder);
-  const option = (g, selected) =>
-    `<option value="${g.id}"${g.id === selected ? " selected" : ""}>${esc(g.name)}</option>`;
-  $("#pick-block-row").innerHTML = blocks.length
-    ? `<label for="pick-block">Block</label>
-      <select id="pick-block"><option value="">${folder ? "Just in the folder" : "No block"}</option>${blocks
-        .map((b) => option(b, blockId))
-        .join("")}</select>`
-    : "";
-  const block = Number($("#pick-block")?.value) || null;
-  const weeks = block ? state.groups.filter((g) => g.parent_id === block) : [];
-  $("#pick-week-row").innerHTML = weeks.length
-    ? `<label for="pick-week">Week</label>
-      <select id="pick-week"><option value="">Just in the block</option>${weeks
-        .map((w) => option(w, weekId))
-        .join("")}</select>`
-    : "";
-}
-
-/** Start the picker on the plan's own place, once it's on screen. */
-function startPlacePicker() {
-  const start = $("#pick-start");
-  if (!start) return;
-  fillPlacePicker(Number(start.dataset.block) || null, Number(start.dataset.week) || null);
-}
-
-/** What the picker says: { group_id, folder_id } for the plans API. */
-function readPlacePicker() {
-  const week = Number($("#pick-week")?.value) || null;
-  const block = Number($("#pick-block")?.value) || null;
-  const folder = Number($("#pick-folder")?.value) || null;
-  return { group_id: week || block, folder_id: week || block ? null : folder };
-}
-
-document.addEventListener("change", (ev) => {
-  if (ev.target.id === "pick-folder") fillPlacePicker();
-  else if (ev.target.id === "pick-block") fillPlacePicker(Number(ev.target.value) || null);
+/** A spot as the plans API wants it. */
+const placeOfSpot = (at) => ({
+  group_id: at.week || at.block || null,
+  folder_id: at.week || at.block ? null : at.folder,
 });
+
+/** "Summer › Block 1 › Week 2", or "Not in a folder" at the top. */
+function spotLabel(at) {
+  const names = [
+    state.folders.find((f) => f.id === at.folder)?.name,
+    state.groups.find((g) => g.id === at.block)?.name,
+    state.groups.find((g) => g.id === at.week)?.name,
+  ].filter(Boolean);
+  return names.length ? names.join(" › ") : "Not in a folder";
+}
+
+/** Open the picker: { title, yes, depth, need, at, name, note, onPick,
+ * onCancel }. onPick(at, name) does the move or copy. */
+function openPicker(options) {
+  state.picker = { need: "top", name: undefined, ...options, at: { ...options.at } };
+  renderPicker();
+}
+
+function renderPicker() {
+  const pk = state.picker;
+  const { at } = pk;
+  const level = levelOf(at);
+  const deeper = LEVELS.indexOf(level) < LEVELS.indexOf(pk.depth);
+  const ok = LEVELS.indexOf(level) >= LEVELS.indexOf(pk.need);
+  const blocksIn = (folderId) =>
+    state.groups.filter((g) => g.parent_id == null && (g.folder_id ?? null) === folderId);
+  const rows = !deeper
+    ? []
+    : level === "top"
+      ? [...state.folders.map((f) => ["folder", f]), ...(pk.depth === "folder" ? [] : blocksIn(null).map((b) => ["block", b]))]
+      : level === "folder"
+        ? blocksIn(at.folder).map((b) => ["block", b])
+        : state.groups.filter((g) => g.parent_id === at.block).map((w) => ["week", w]);
+  const empty = { top: "No folders yet.", folder: "No blocks in this folder.", block: "No weeks in this block." }[level];
+  const names = spotLabel(at).split(" › ");
+  const here = level === "top" ? "All plans" : names.at(-1);
+  const above = level === "top" ? [] : ["All plans", ...names.slice(0, -1)];
+  openSheet(
+    pk.title,
+    `<div class="stack">
+      ${pk.name === undefined ? "" : `<div><label for="picker-name">Name</label>
+        <input id="picker-name" value="${esc(pk.name)}" maxlength="80"></div>`}
+      ${pk.note ? `<p class="muted">${pk.note}</p>` : ""}
+      <div class="dir-head">
+        ${level === "top" ? "" : `<button type="button" class="back-btn" data-action="picker-up" aria-label="Back">
+          <span class="chev" aria-hidden="true"></span></button>`}
+        <div class="grow">
+          ${above.length ? `<div class="crumbs">${above.map(esc).join(" › ")}</div>` : ""}
+          <h2>${esc(here)}</h2>
+        </div>
+      </div>
+      <div class="stack tight">${
+        rows
+          .map(
+            ([kind, g]) => `
+          <button type="button" class="card dir-row ${kind}" data-action="picker-into" data-kind="${kind}" data-id="${g.id}">
+            <span class="grow group-name">${esc(g.name)}</span>
+            <span class="chev" aria-hidden="true"></span>
+          </button>`,
+          )
+          .join("") || (deeper ? `<p class="muted dir-empty">${empty}</p>` : "")
+      }</div>
+      ${ok ? "" : `<p class="muted">Go into a ${pk.need} to put it there.</p>`}
+    </div>`,
+    `<div class="stack tight">
+      <button class="btn good" data-action="picker-go"${ok ? "" : " disabled"}>${esc(pk.yes)} here</button>
+      ${pk.onCancel ? '<button class="btn ghost" data-action="picker-cancel">Cancel</button>' : ""}
+    </div>`,
+  );
+}
+
+/** Keep a typed name while moving around the picker. */
+function keepPickerName() {
+  const input = $("#picker-name");
+  if (input && state.picker) state.picker.name = input.value;
+}
 
 function openPlanEditor(plan, groupId = null, folderId = null) {
   state.draft = plan
@@ -2069,7 +2110,6 @@ function syncDraftFromInputs() {
   const notesEl = $("#draft-notes");
   if (nameEl) d.name = nameEl.value;
   if (notesEl) d.notes = notesEl.value;
-  if ($(".place-picker")) Object.assign(d, readPlacePicker());
   $$("#sheet-body input[data-idx]").forEach((input) => {
     const item = d.items[Number(input.dataset.idx)];
     if (!item) return;
@@ -2107,35 +2147,6 @@ function openGroupSheet(
   );
   $("#group-name").select();
 }
-
-/** Where a duplicated week goes: a folder (or none), then a block in it.
- * Starts on `block`'s own folder and block. */
-function copyWeekPlaceHtml(block) {
-  const folder = block?.folder_id ?? null;
-  return `
-    ${state.folders.length ? `<div><label for="copy-folder">Folder</label>
-      <select id="copy-folder"><option value="">No folder</option>${state.folders
-        .map((f) => `<option value="${f.id}"${f.id === folder ? " selected" : ""}>${esc(f.name)}</option>`)
-        .join("")}</select></div>` : ""}
-    <div><label for="copy-block">Block</label>
-      <select id="copy-block">${blockOptionsHtml(folder, block?.id)}</select></div>`;
-}
-
-function blockOptionsHtml(folderId, selected) {
-  const blocks = state.groups.filter((g) => g.parent_id == null && (g.folder_id ?? null) === folderId);
-  return blocks.length
-    ? blocks
-        .map((b) => `<option value="${b.id}"${b.id === selected ? " selected" : ""}>${esc(b.name)}</option>`)
-        .join("")
-    : '<option value="">No blocks in this folder</option>';
-}
-
-// Picking a folder for a duplicated week lists that folder's blocks.
-document.addEventListener("change", (ev) => {
-  if (ev.target.id !== "copy-folder") return;
-  const folder = ev.target.value ? Number(ev.target.value) : null;
-  $("#copy-block").innerHTML = blockOptionsHtml(folder, null);
-});
 
 /** Which folder a block sits in; nothing to pick until a folder exists. */
 function folderSelectHtml(folderId) {
@@ -2835,106 +2846,135 @@ const actions = {
     openPlanEditor(await api(`/plans/${el.dataset.id}`));
   },
 
-  // Move a plan to another week or folder (or out of both).
+  // Move a plan: browse to a week, a block or a folder, and move it there.
   "move-plan"(el) {
     const plan = state.plans.find((p) => p.id === Number(el.dataset.id));
     if (!plan) return;
-    if (!state.folders.length && !state.groups.length)
-      return toast("Make a folder or block first, to move plans into");
-    openSheet(
-      `Move ${plan.name}`,
-      placePickerHtml(plan.group_id, plan.folder_id),
-      `<button class="btn good" data-action="move-plan-save" data-id="${plan.id}">Move</button>`,
-    );
+    openPicker({
+      title: `Move ${plan.name}`,
+      yes: "Move",
+      depth: "week",
+      at: spotFor(plan.group_id, plan.folder_id),
+      async onPick(at) {
+        await api(`/plans/${plan.id}/place`, { method: "PUT", body: placeOfSpot(at) });
+        closeSheet();
+        toast(`Moved to ${spotLabel(at)}`);
+        refresh();
+      },
+    });
   },
 
-  async "move-plan-save"(el) {
-    await api(`/plans/${el.dataset.id}/place`, { method: "PUT", body: readPlacePicker() });
-    closeSheet();
-    toast("Plan moved");
-    refresh();
+  // A copy of a plan (to do it again, or build from it) under a new name,
+  // wherever you browse to.
+  "copy-plan"(el) {
+    const plan = state.plans.find((p) => p.id === Number(el.dataset.id));
+    if (!plan) return;
+    openPicker({
+      title: "Copy plan",
+      yes: "Copy",
+      depth: "week",
+      name: plan.name,
+      at: spotFor(plan.group_id, plan.folder_id),
+      async onPick(at, name) {
+        const full = await api(`/plans/${plan.id}`);
+        await api("/plans", {
+          method: "POST",
+          body: {
+            name,
+            notes: full.notes,
+            ...placeOfSpot(at),
+            items: full.items.map((it) => ({
+              exercise_id: it.exercise_id,
+              target_sets: it.target_sets,
+              target_reps: it.target_reps,
+              target_rpe: it.target_rpe,
+              rest_seconds: it.rest_seconds,
+            })),
+          },
+        });
+        closeSheet();
+        toast(`${name} added`);
+        refresh();
+      },
+    });
   },
 
-  // Duplicate a block (asking which folder) or a week (asking which folder,
-  // then which block), with everything in it.
+  // Duplicate a block into a folder (or none), or a week into a block, with
+  // everything in it; the picker only goes as deep as it can go.
   "copy-group"(el) {
     const group = state.groups.find((g) => g.id === Number(el.dataset.id));
     if (!group) return;
     const isBlock = group.parent_id == null;
-    const parent = isBlock ? null : state.groups.find((g) => g.id === group.parent_id);
     const next = /^(.*?)(\d+)$/.exec(group.name);
-    openGroupSheet(
-      isBlock ? "Duplicate block" : "Duplicate week",
-      next ? `${next[1]}${Number(next[2]) + 1}` : `${group.name} (copy)`,
-      `data-id="${group.id}"`,
-      {
-        action: "group-copy",
-        extra: `<div class="stack" style="margin-top:12px">
-          ${isBlock ? folderSelectHtml(group.folder_id ?? null) : copyWeekPlaceHtml(parent)}
-          <p class="muted">Copies ${isBlock ? "every week and plan" : "every plan"} in it. Logged workouts stay with the original.</p></div>`,
-      },
-    );
-  },
-
-  async "group-copy"(el) {
-    const name = $("#group-name").value.trim();
-    if (!name) return toast("Give it a name");
-    const group = state.groups.find((g) => g.id === Number(el.dataset.id));
-    if (!group) return closeSheet();
-    const body = { name };
-    if (group.parent_id == null) {
-      body.folder_id = $("#group-folder")?.value ? Number($("#group-folder").value) : null;
-    } else {
-      body.parent_id = Number($("#copy-block").value);
-      if (!body.parent_id) return toast("Pick a block to put it in");
-    }
-    await api(`/groups/${group.id}/copy`, { method: "POST", body });
-    closeSheet();
-    toast(`Made ${name}`);
-    refresh();
-  },
-
-  // A copy to do a plan again (or build from it): same exercises, a new name,
-  // and by default the same week.
-  "copy-plan"(el) {
-    const plan = state.plans.find((p) => p.id === Number(el.dataset.id));
-    if (!plan) return;
-    openSheet(
-      "Copy plan",
-      `<div class="stack">
-        <div><label for="copy-name">Name</label>
-          <input id="copy-name" value="${esc(plan.name)}" maxlength="80"
-            enterkeyhint="done" data-enter="copy-plan-save"></div>
-        ${placePickerHtml(plan.group_id, plan.folder_id)}
-      </div>`,
-      `<button class="btn good" data-action="copy-plan-save" data-id="${plan.id}">Make copy</button>`,
-    );
-    $("#copy-name").select();
-  },
-
-  async "copy-plan-save"() {
-    const id = Number($('#sheet-foot [data-action="copy-plan-save"]').dataset.id);
-    const plan = await api(`/plans/${id}`);
-    const name = $("#copy-name").value.trim();
-    if (!name) return toast("Give the plan a name");
-    await api("/plans", {
-      method: "POST",
-      body: {
-        name,
-        notes: plan.notes,
-        ...readPlacePicker(),
-        items: plan.items.map((it) => ({
-          exercise_id: it.exercise_id,
-          target_sets: it.target_sets,
-          target_reps: it.target_reps,
-          target_rpe: it.target_rpe,
-          rest_seconds: it.rest_seconds,
-        })),
+    const spot = spotFor(group.parent_id ?? group.id, null);
+    openPicker({
+      title: isBlock ? "Duplicate block" : "Duplicate week",
+      yes: "Duplicate",
+      depth: isBlock ? "folder" : "block",
+      need: isBlock ? "top" : "block",
+      name: next ? `${next[1]}${Number(next[2]) + 1}` : `${group.name} (copy)`,
+      note: `Copies ${isBlock ? "every week and plan" : "every plan"} in it. Logged workouts stay with the original.`,
+      at: isBlock ? { folder: spot.folder, block: null, week: null } : spot,
+      async onPick(at, name) {
+        const body = isBlock ? { name, folder_id: at.folder } : { name, parent_id: at.block };
+        await api(`/groups/${group.id}/copy`, { method: "POST", body });
+        closeSheet();
+        toast(`Made ${name} in ${spotLabel(at)}`);
+        refresh();
       },
     });
-    closeSheet();
-    toast(`${name} added`);
-    refresh();
+  },
+
+  // The plan editor's Where: browse there, then back to the editor.
+  "draft-where"() {
+    syncDraftFromInputs();
+    const draft = state.draft;
+    const backToEditor = () => {
+      state.draft = draft;
+      openSheet(draft.id ? "Edit plan" : "New plan", planEditorHtml(), PLAN_SAVE);
+    };
+    openPicker({
+      title: "Where it goes",
+      yes: "Put it",
+      depth: "week",
+      at: spotFor(draft.group_id, draft.folder_id),
+      onPick(at) {
+        Object.assign(draft, placeOfSpot(at));
+        backToEditor();
+      },
+      onCancel: backToEditor,
+    });
+  },
+
+  "picker-into"(el) {
+    keepPickerName();
+    const { at } = state.picker;
+    const id = Number(el.dataset.id);
+    if (el.dataset.kind === "folder") Object.assign(at, { folder: id, block: null, week: null });
+    else if (el.dataset.kind === "block") Object.assign(at, { block: id, week: null });
+    else at.week = id;
+    renderPicker();
+  },
+
+  "picker-up"() {
+    keepPickerName();
+    const { at } = state.picker;
+    if (at.week) at.week = null;
+    else if (at.block) at.block = null;
+    else at.folder = null;
+    renderPicker();
+  },
+
+  async "picker-go"() {
+    keepPickerName();
+    const pk = state.picker;
+    const name = pk.name === undefined ? undefined : pk.name.trim();
+    if (name === "") return toast("Give it a name");
+    await pk.onPick({ ...pk.at }, name);
+  },
+
+  "picker-cancel"() {
+    state.picker.onCancel();
   },
 
   async "del-plan"(el) {
