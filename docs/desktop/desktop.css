@@ -193,6 +193,12 @@ body {
   padding: 20px;
   align-self: start;
 }
+/* Folder, then block, then week, side by side. */
+.place-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
 .editor-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

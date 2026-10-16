@@ -23,8 +23,9 @@ function newUid() {
   });
 }
 
-/* The work in progress. A plan's `place` is "" (no folder), "f:<folder uid>"
- * or "w:<week uid>"; a block's `folder` is a folder uid or null. */
+/* The work in progress. A plan's `place` is "" (no folder), "f:<folder uid>",
+ * "b:<block uid>" (straight in a block) or "w:<week uid>"; a block's `folder`
+ * is a folder uid or null. */
 const empty = () => ({ folders: [], blocks: [], weeks: [], plans: [], selected: null, open: [] });
 let state = load();
 
@@ -76,10 +77,8 @@ const isOpen = (uid) => state.open.includes(uid);
  * plan just made or moved is in view. */
 function reveal(place, ...extra) {
   const uids = [...extra];
-  const week = place.startsWith("w:") && state.weeks.find((w) => `w:${w.uid}` === place);
-  const block = week && state.blocks.find((b) => b.uid === week.block);
-  if (week) uids.push(week.uid, block?.uid, block?.folder);
-  if (place.startsWith("f:")) uids.push(place.slice(2));
+  const { folder, block, week } = placeParts(place);
+  uids.push(folder, block, week);
   uids.filter(Boolean).forEach((uid) => isOpen(uid) || state.open.push(uid));
 }
 const plansAt = (place) => state.plans.filter((p) => p.place === place);
@@ -162,11 +161,16 @@ function renderTree() {
   const blockHtml = (b) => `
     <div class="branch">${head("block", b, [
       tool("add-week", "+ Week", `data-uid="${b.uid}"`),
+      tool("add-plan", "+ Plan", `data-place="b:${b.uid}"`),
       tool("dup-block", "Duplicate", `data-uid="${b.uid}"`),
       tool("rename-block", "Rename", `data-uid="${b.uid}"`),
       tool("del-block", "&times;", `data-uid="${b.uid}" aria-label="Delete block"`),
     ])}
-      ${children(b, state.weeks.filter((w) => w.block === b.uid).map(weekHtml).join("") || '<p class="muted empty-branch">No weeks yet.</p>')}
+      ${children(
+        b,
+        state.weeks.filter((w) => w.block === b.uid).map(weekHtml).join("") +
+          plansAt(`b:${b.uid}`).map(planRow).join("") || '<p class="muted empty-branch">No weeks yet.</p>',
+      )}
     </div>`;
 
   const folderHtml = (f) => `
@@ -192,28 +196,43 @@ function renderTree() {
     '<p class="muted">Nothing yet. Start with + Folder, + Block or + Plan, or open a plans file exported from the phone.</p>';
 }
 
-/** Where a plan can go: nowhere, a folder, or a week (under its block). */
-function placeOptions(current) {
-  const opt = (value, label) =>
-    `<option value="${value}"${value === current ? " selected" : ""}>${esc(label)}</option>`;
-  const weeksOf = (b) =>
-    state.weeks.filter((w) => w.block === b.uid).map((w) => opt(`w:${w.uid}`, `${b.name} › ${w.name}`)).join("");
-  const folders = state.folders
-    .map(
-      (f) => `<optgroup label="${esc(f.name)}">${opt(`f:${f.uid}`, `${f.name}, no week`)}${state.blocks
-        .filter((b) => b.folder === f.uid)
-        .map(weeksOf)
-        .join("")}</optgroup>`,
-    )
-    .join("");
-  const loose = state.blocks
-    .filter((b) => !b.folder)
-    .map((b) => {
-      const weeks = weeksOf(b);
-      return weeks ? `<optgroup label="${esc(b.name)}">${weeks}</optgroup>` : "";
-    })
-    .join("");
-  return opt("", "No folder or week") + folders + loose;
+/** A plan's place as its folder, block and week uids (each or null). */
+function placeParts(place) {
+  const uid = place.slice(2);
+  const week = place.startsWith("w:") ? state.weeks.find((w) => w.uid === uid) : null;
+  const block = place.startsWith("b:")
+    ? state.blocks.find((b) => b.uid === uid)
+    : week && state.blocks.find((b) => b.uid === week.block);
+  const folder = place.startsWith("f:") ? uid : block?.folder || null;
+  return { folder: folder || null, block: block?.uid || null, week: week?.uid || null };
+}
+
+/** The place once one step (folder, block or week) is changed to `value`:
+ * a blank step leaves the plan in the step above. */
+function placeAfter(step, value, place) {
+  const { folder, block } = placeParts(place);
+  if (step === "folder") return value ? `f:${value}` : "";
+  if (step === "block") return value ? `b:${value}` : folder ? `f:${folder}` : "";
+  return value ? `w:${value}` : `b:${block}`;
+}
+
+/* Where a plan goes, picked a step at a time: a folder (or none), then a
+ * block in it, then a week in that block; stopping at a step puts the plan
+ * there. Each step is a select with data-step; `prefix` keeps ids apart. */
+function placeStepsHtml(place, prefix, cls = "") {
+  const { folder, block, week } = placeParts(place);
+  const step = (name, label, blank, items, selected) => `
+    <div><label for="${prefix}-${name}">${label}</label>
+      <select id="${prefix}-${name}" class="${cls}" data-step="${name}"><option value="">${blank}</option>${items
+        .map((x) => `<option value="${x.uid}"${x.uid === selected ? " selected" : ""}>${esc(x.name)}</option>`)
+        .join("")}</select></div>`;
+  const blocks = state.blocks.filter((b) => (b.folder || null) === folder);
+  const weeks = block ? state.weeks.filter((w) => w.block === block) : [];
+  return (
+    (state.folders.length ? step("folder", "Folder", "No folder", state.folders, folder) : "") +
+    (blocks.length ? step("block", "Block", folder ? "Just in the folder" : "No block", blocks, block) : "") +
+    (weeks.length ? step("week", "Week", "Just in the block", weeks, week) : "")
+  );
 }
 
 function renderEditor() {
@@ -244,12 +263,9 @@ function renderEditor() {
     })
     .join("");
   $("#editor").innerHTML = `
-    <div class="editor-grid">
-      <div><label for="plan-name">Plan name</label>
-        <input id="plan-name" data-plan="name" value="${esc(plan.name)}" placeholder="Push day"></div>
-      <div><label for="plan-place">Folder or week</label>
-        <select id="plan-place" data-plan="place">${placeOptions(plan.place)}</select></div>
-    </div>
+    <div><label for="plan-name">Plan name</label>
+      <input id="plan-name" data-plan="name" value="${esc(plan.name)}" placeholder="Push day"></div>
+    <div class="place-steps">${placeStepsHtml(plan.place, "plan")}</div>
     <div><label for="plan-notes">Notes</label>
       <input id="plan-notes" data-plan="notes" value="${esc(plan.notes)}" placeholder="optional"></div>
     <table class="items">
@@ -270,14 +286,15 @@ function renderEditor() {
 $("#editor").addEventListener("input", (ev) => {
   const plan = planById(state.selected);
   if (!plan) return;
+  if (ev.target.dataset.step) {
+    plan.place = placeAfter(ev.target.dataset.step, ev.target.value, plan.place);
+    reveal(plan.place); // keep the plan in view where it went
+    return render(); // the next step's choices change with this one
+  }
   const field = ev.target.dataset.plan;
   if (field) {
     plan[field] = ev.target.value;
     if (field === "name") renderTree();
-    if (field === "place") {
-      reveal(plan.place); // keep the plan in view where it went
-      renderTree();
-    }
     return save();
   }
   const row = ev.target.closest("tr[data-i]");
@@ -287,9 +304,6 @@ $("#editor").addEventListener("input", (ev) => {
   item[f] = ev.target.value;
   if (f === "name") renderTree(); // the exercise count
   save();
-});
-$("#editor").addEventListener("change", (ev) => {
-  if (ev.target.id === "plan-place") renderTree();
 });
 
 /** Enter in an exercise row adds the next one. */
@@ -373,8 +387,8 @@ async function askCopyPlace({ title, name, folder, block }) {
   return value || null;
 }
 
-/** Where a plan goes (and, for a copy, its name): any week, a folder without
- * a week, or neither. Resolves { name, place } or null if cancelled. */
+/** Where a plan goes (and, for a copy, its name), a step at a time: folder,
+ * block, week. Resolves { name, place } or null if cancelled. */
 async function askPlanPlace({ title, name, place, yes }) {
   const field = (id) => document.getElementById(id);
   const { value } = await dialog({
@@ -382,19 +396,24 @@ async function askPlanPlace({ title, name, place, yes }) {
     html: `<div class="swal-fields">
       ${name === undefined ? "" : `<label for="copy-name">Name</label>
       <input id="copy-name" class="swal2-input" value="${esc(name)}">`}
-      <label for="copy-place">Folder or week</label>
-      <select id="copy-place" class="swal2-select">${placeOptions(place)}</select>
+      <div id="copy-steps" class="swal-fields">${placeStepsHtml(place, "copy", "swal2-select")}</div>
     </div>`,
     showCancelButton: true,
     confirmButtonText: yes,
-    didOpen: () => field("copy-name")?.select(),
+    didOpen: () => {
+      field("copy-steps").addEventListener("change", (ev) => {
+        place = placeAfter(ev.target.dataset.step, ev.target.value, place);
+        field("copy-steps").innerHTML = placeStepsHtml(place, "copy", "swal2-select");
+      });
+      field("copy-name")?.select();
+    },
     preConfirm: () => {
       const copyName = name === undefined ? undefined : field("copy-name").value.trim();
       if (copyName === "") {
         Swal.showValidationMessage("Give it a name"); // false keeps the dialog open
         return false;
       }
-      return { name: copyName, place: field("copy-place").value };
+      return { name: copyName, place };
     },
   });
   return value || null;
@@ -491,7 +510,8 @@ const actions = {
     state.weeks
       .filter((w) => w.block === block.uid)
       .forEach((w) => copyWeek(w, w.name, copy.uid));
-    reveal("", to.folder, copy.uid);
+    plansAt(`b:${block.uid}`).forEach((p) => state.plans.push(copyPlan(p, `b:${copy.uid}`)));
+    reveal(`b:${copy.uid}`);
     render();
     toast(`${to.name} added`);
   },
@@ -627,6 +647,7 @@ function deleteWeek(uid) {
 
 function deleteBlock(uid) {
   state.weeks.filter((w) => w.block === uid).forEach((w) => deleteWeek(w.uid));
+  removePlans((p) => p.place === `b:${uid}`);
   state.blocks = state.blocks.filter((b) => b.uid !== uid);
 }
 
@@ -656,18 +677,20 @@ function plansFile() {
   const plans = state.plans
     .filter((p) => p.name.trim())
     .map((p) => {
-      const week = p.place.startsWith("w:") ? state.weeks.find((w) => `w:${w.uid}` === p.place) : null;
-      const block = week && state.blocks.find((b) => b.uid === week.block);
-      const folderUid = block ? block.folder : p.place.startsWith("f:") ? p.place.slice(2) : null;
-      const folder = state.folders.find((f) => f.uid === folderUid);
+      const parts = placeParts(p.place);
+      const week = state.weeks.find((w) => w.uid === parts.week);
+      const block = state.blocks.find((b) => b.uid === parts.block);
+      const folder = state.folders.find((f) => f.uid === parts.folder);
+      // A plan straight in a block names just the block.
+      const path = block ? (week ? [block, week] : [block]) : null;
       return {
         uid: p.uid,
         name: p.name.trim(),
         notes: p.notes.trim(),
         folder: folder ? folder.name : null,
         folder_uid: folder ? folder.uid : null,
-        group: block ? [block.name, week.name] : null,
-        group_uids: block ? [block.uid, week.uid] : null,
+        group: path && path.map((g) => g.name),
+        group_uids: path && path.map((g) => g.uid),
         items: p.items
           .filter((it) => it.name.trim())
           .map((it) => {
@@ -750,11 +773,14 @@ function openPlansFile(file) {
   file.plans.forEach((p) => {
     const folder = p.folder ? findOrAdd(next.folders, p.folder_uid, String(p.folder), {}) : null;
     let place = folder ? `f:${folder.uid}` : "";
-    if (Array.isArray(p.group) && p.group.length === 2) {
+    if (Array.isArray(p.group) && (p.group.length === 1 || p.group.length === 2)) {
       const uids = Array.isArray(p.group_uids) ? p.group_uids : [];
       const block = findOrAdd(next.blocks, uids[0], String(p.group[0]), { folder: folder ? folder.uid : null });
-      const week = findOrAdd(next.weeks, uids[1], String(p.group[1]), { block: block.uid });
-      place = `w:${week.uid}`;
+      place = `b:${block.uid}`;
+      if (p.group.length === 2) {
+        const week = findOrAdd(next.weeks, uids[1], String(p.group[1]), { block: block.uid });
+        place = `w:${week.uid}`;
+      }
     }
     next.plans.push({
       uid: p.uid || newUid(),

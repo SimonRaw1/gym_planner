@@ -712,3 +712,35 @@ test("a block duplicates into another folder, and a week into another block", as
   assert.equal(copy.items.length, 1, "the plans keep their exercises");
   assert.equal(folder.name, "Nationals Prep");
 });
+
+test("a plan can sit straight in a block, travel in a plans file, and move up when its week goes", async () => {
+  const { app, folder } = await phoneWithFolder(); // Nationals Prep: Peak / Week 1 / Heavy singles
+  let data = plain(await app.run("localData()"));
+  const peak = data.groups.find((g) => g.name === "Peak");
+  const week1 = data.groups.find((g) => g.parent_id === peak.id);
+  await post(app, "/plans", { name: "Testing day", group_id: peak.id, items: [] });
+  data = plain(await app.run("localData()"));
+  const testing = data.plans.find((p) => p.name === "Testing day");
+  assert.equal(testing.group_id, peak.id);
+  assert.equal(app.run("planFolderId")(data, testing), folder.id, "in the block's folder");
+
+  // Exported as just the block, and imported back into a block.
+  const file = await exportFolder(app, folder.id);
+  const exported = file.plans.find((p) => p.name === "Testing day");
+  assert.deepEqual(exported.group, ["Peak"]);
+  const other = await phone();
+  await importPlans(other, file, "add");
+  const there = plain(await other.run("localData()"));
+  const block = there.groups.find((g) => g.name === "Peak");
+  assert.equal(there.plans.find((p) => p.name === "Testing day").group_id, block.id);
+
+  // Deleting the week moves its plan up into the block.
+  await app.run(`api("/groups/${week1.id}", { method: "DELETE" })`);
+  data = plain(await app.run("localData()"));
+  assert.equal(data.plans.find((p) => p.name === "Heavy singles").group_id, peak.id);
+  // Duplicating the block takes its own plans too.
+  await post(app, `/groups/${peak.id}/copy`, { name: "Peak 2", folder_id: folder.id });
+  data = plain(await app.run("localData()"));
+  const peak2 = data.groups.find((g) => g.name === "Peak 2");
+  assert.deepEqual(data.plans.filter((p) => p.group_id === peak2.id).map((p) => p.name).sort(), ["Heavy singles", "Testing day"]);
+});

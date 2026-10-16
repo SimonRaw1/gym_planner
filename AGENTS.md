@@ -41,6 +41,9 @@ stays on their own phone, with no accounts.
   desktop builder's Copy link): the plans export, deflate-compressed and
   base64url-encoded after `#plans=`, so it never reaches the server. Keep that
   format readable by unpackPlans() when the export shape changes.
+- A plan sits in a week, straight in a block (its group_id is the block), in a
+  folder, or nowhere. In a plans file its `group` is [block, week] or just
+  [block]; older app versions put a just-[block] plan in the block's folder.
 - A plans file lists its plans and, under `structure`, its folders, blocks and
   weeks (so empty ones travel too). Both are optional on import, so files
   from before `structure` still work; keep it that way.
