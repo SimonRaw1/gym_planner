@@ -138,10 +138,16 @@ function renderTree() {
     `<button type="button" class="tool" data-act="${act}" ${data}>${label}</button>`;
 
   const planRow = (p) => `
-    <button type="button" class="node plan${p.uid === state.selected ? " selected" : ""}" data-act="select" data-uid="${p.uid}">
-      <span class="grow">${esc(p.name) || '<em class="muted">Untitled plan</em>'}</span>
+    <div class="node plan${p.uid === state.selected ? " selected" : ""}">
+      <button type="button" class="twisty grow" data-act="select" data-uid="${p.uid}">
+        <span class="grow">${esc(p.name) || '<em class="muted">Untitled plan</em>'}</span>
+      </button>
+      ${tools(
+        tool("move-plan", "Move", `data-uid="${p.uid}"`),
+        tool("copy-plan", "Copy", `data-uid="${p.uid}"`),
+      )}
       <span class="count">${p.items.length}</span>
-    </button>`;
+    </div>`;
 
   const weekHtml = (w) => `
     <div class="branch">${head("week", w, [
@@ -253,7 +259,8 @@ function renderEditor() {
     <div class="editor-foot">
       <button class="btn small" data-act="item-add">+ Add exercise</button>
       <span class="grow"></span>
-      <button class="btn small ghost" data-act="dup-plan">Duplicate plan</button>
+      <button class="btn small ghost" data-act="move-plan" data-uid="${plan.uid}">Move</button>
+      <button class="btn small ghost" data-act="copy-plan" data-uid="${plan.uid}">Copy</button>
       <button class="btn small danger" data-act="del-plan">Delete plan</button>
     </div>`;
 }
@@ -366,6 +373,33 @@ async function askCopyPlace({ title, name, folder, block }) {
   return value || null;
 }
 
+/** Where a plan goes (and, for a copy, its name): any week, a folder without
+ * a week, or neither. Resolves { name, place } or null if cancelled. */
+async function askPlanPlace({ title, name, place, yes }) {
+  const field = (id) => document.getElementById(id);
+  const { value } = await dialog({
+    title,
+    html: `<div class="swal-fields">
+      ${name === undefined ? "" : `<label for="copy-name">Name</label>
+      <input id="copy-name" class="swal2-input" value="${esc(name)}">`}
+      <label for="copy-place">Folder or week</label>
+      <select id="copy-place" class="swal2-select">${placeOptions(place)}</select>
+    </div>`,
+    showCancelButton: true,
+    confirmButtonText: yes,
+    didOpen: () => field("copy-name")?.select(),
+    preConfirm: () => {
+      const copyName = name === undefined ? undefined : field("copy-name").value.trim();
+      if (copyName === "") {
+        Swal.showValidationMessage("Give it a name"); // false keeps the dialog open
+        return false;
+      }
+      return { name: copyName, place: field("copy-place").value };
+    },
+  });
+  return value || null;
+}
+
 /** Yes before something that can't be undone; `yes` labels the button. */
 async function sure(text, yes = "Delete") {
   const { isConfirmed } = await dialog({
@@ -461,13 +495,34 @@ const actions = {
     render();
     toast(`${to.name} added`);
   },
-  "dup-plan"() {
-    const plan = planById(state.selected);
-    const copy = { ...copyPlan(plan, plan.place), name: nextName(plan.name || "Plan") };
-    state.plans.splice(state.plans.indexOf(plan) + 1, 0, copy);
-    state.selected = copy.uid;
+  // Move a plan to another week or folder, or out of both.
+  async "move-plan"(el) {
+    const plan = planById(el.dataset.uid);
+    const to = await askPlanPlace({ title: `Move ${plan.name || "plan"}`, place: plan.place, yes: "Move" });
+    if (!to) return;
+    plan.place = to.place;
+    reveal(plan.place);
     render();
-    $("#plan-name").select();
+    toast("Plan moved");
+  },
+
+  // A copy of a plan under a new name, anywhere (by default beside it).
+  async "copy-plan"(el) {
+    const plan = planById(el.dataset.uid);
+    const siblings = plansAt(plan.place).map((p) => p.name);
+    const to = await askPlanPlace({
+      title: "Copy plan",
+      name: freshName(plan.name || "Plan", siblings),
+      place: plan.place,
+      yes: "Copy",
+    });
+    if (!to) return;
+    const copy = { ...copyPlan(plan, to.place), name: to.name };
+    insertCopy(state.plans, plan, copy, (p) => p.place === to.place);
+    state.selected = copy.uid;
+    reveal(copy.place);
+    render();
+    toast(`${to.name} added`);
   },
 
   async "rename-folder"(el) {

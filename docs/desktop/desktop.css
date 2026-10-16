@@ -110,11 +110,7 @@ body {
   font-size: 0.9rem;
 }
 .node.plan {
-  width: 100%;
-  text-align: left;
-  background: none;
   border: 1px solid transparent;
-  cursor: pointer;
   font-size: 0.92rem;
 }
 .node.plan:hover {
