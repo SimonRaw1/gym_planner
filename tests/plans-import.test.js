@@ -685,3 +685,30 @@ test("empty folders, blocks and weeks travel with the plans", async () => {
     weeks: ["Off season / Base / Week 1", "Off season / Base / Week 2"],
   });
 });
+
+test("a block duplicates into another folder, and a week into another block", async () => {
+  const { app, folder } = await phoneWithFolder(); // Nationals Prep: Peak / Week 1 / Heavy singles
+  const other = plain(await post(app, "/folders", { name: "Next year" }));
+  let data = plain(await app.run("localData()"));
+  const peak = data.groups.find((g) => g.name === "Peak");
+  const offSeason = data.groups.find((g) => g.name === "Off season");
+  const week1 = data.groups.find((g) => g.parent_id === peak.id);
+
+  await post(app, `/groups/${peak.id}/copy`, { name: "Peak 2", folder_id: other.id });
+  await post(app, `/groups/${week1.id}/copy`, { name: "Week 9", parent_id: offSeason.id });
+  assert.deepEqual(await folderLayout(app), [
+    "Mobility",
+    "Nationals Prep: Openers",
+    "Nationals Prep: Peak / Week 1 / Heavy singles",
+    "Next year: Peak 2 / Week 1 / Heavy singles",
+    "Off season / Week 1 / Volume",
+    "Off season / Week 9 / Heavy singles",
+  ]);
+
+  data = plain(await app.run("localData()"));
+  const uids = [...data.plans, ...data.groups].map((x) => x.uid);
+  assert.equal(new Set(uids).size, uids.length, "every copy has its own uid");
+  const copy = data.plans.find((p) => p.name === "Heavy singles" && p.id !== data.plans[0].id);
+  assert.equal(copy.items.length, 1, "the plans keep their exercises");
+  assert.equal(folder.name, "Nationals Prep");
+});

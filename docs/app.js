@@ -363,6 +363,40 @@ function planFolderId(data, plan) {
   return plan.folder_id ?? null;
 }
 
+/** Copies, each with a new uid so a plans import never mistakes one for its
+ * original; `changes` says where it goes. */
+function copyPlan(data, plan, changes) {
+  const copy = {
+    ...structuredClone(plan),
+    id: data.nextIds.plan++,
+    uid: newUid(),
+    created_at: nowTs(),
+    ...changes,
+  };
+  data.plans.push(copy);
+  return copy;
+}
+
+function copyWeek(data, week, changes) {
+  const copy = { ...week, id: data.nextIds.group++, uid: newUid(), ...changes };
+  if (copy.position === undefined) delete copy.position;
+  data.groups.push(copy);
+  data.plans
+    .filter((p) => p.group_id === week.id)
+    .forEach((plan) => copyPlan(data, plan, { group_id: copy.id, folder_id: null }));
+  return copy;
+}
+
+function copyBlock(data, block, changes) {
+  const copy = { ...block, id: data.nextIds.group++, uid: newUid(), ...changes };
+  if (copy.position === undefined) delete copy.position;
+  data.groups.push(copy);
+  data.groups
+    .filter((g) => g.parent_id === block.id)
+    .forEach((week) => copyWeek(data, week, { parent_id: copy.id }));
+  return copy;
+}
+
 function findGroup(data, id) {
   const group = data.groups.find((g) => g.id === Number(id));
   if (!group) throw new Error("Group not found");
@@ -552,44 +586,25 @@ async function api(path, options = {}) {
       name: body.name?.trim() || `${from.name} (copy)`,
     };
     data.folders.push(folder);
-    const copyPlan = (plan, place) =>
-      data.plans.push({
-        ...structuredClone(plan),
-        id: data.nextIds.plan++,
-        uid: newUid(),
-        created_at: nowTs(),
-        ...place,
-      });
-    const blocks = data.groups.filter(
-      (g) => g.parent_id == null && g.folder_id === from.id,
-    );
-    blocks.forEach((block) => {
-      const blockCopy = {
-        ...block,
-        id: data.nextIds.group++,
-        uid: newUid(),
-        folder_id: folder.id,
-      };
-      data.groups.push(blockCopy);
-      data.groups
-        .filter((g) => g.parent_id === block.id)
-        .forEach((week) => {
-          const weekCopy = {
-            ...week,
-            id: data.nextIds.group++,
-            uid: newUid(),
-            parent_id: blockCopy.id,
-          };
-          data.groups.push(weekCopy);
-          data.plans
-            .filter((p) => p.group_id === week.id)
-            .forEach((plan) => copyPlan(plan, { group_id: weekCopy.id, folder_id: null }));
-        });
-    });
+    data.groups
+      .filter((g) => g.parent_id == null && g.folder_id === from.id)
+      .forEach((block) => copyBlock(data, block, { folder_id: folder.id }));
     data.plans
       .filter((p) => p.group_id == null && p.folder_id === from.id)
-      .forEach((plan) => copyPlan(plan, { group_id: null, folder_id: folder.id }));
+      .forEach((plan) => copyPlan(data, plan, { group_id: null, folder_id: folder.id }));
     result = folder;
+  } else if (match(/^\/groups\/(\d+)\/copy$/) && method === "POST") {
+    // A block (into a folder, or none) or a week (into a block), with
+    // everything in it; the copy goes last where it lands.
+    const from = findGroup(data, match(/^\/groups\/(\d+)\/copy$/)[1]);
+    const name = body.name?.trim() || `${from.name} (copy)`;
+    if (from.parent_id == null) {
+      result = copyBlock(data, from, { name, folder_id: folderId(data, body.folder_id), position: undefined });
+    } else {
+      const block = data.groups.find((g) => g.id === Number(body.parent_id) && g.parent_id == null);
+      if (!block) throw new Error("Pick a block to put it in");
+      result = copyWeek(data, from, { name, parent_id: block.id, position: undefined });
+    }
   } else if (match(/^\/folders\/(\d+)$/) && method === "DELETE") {
     // Only the folder goes; its blocks and plans move out of it.
     const id = Number(match(/^\/folders\/(\d+)$/)[1]);
@@ -1815,6 +1830,7 @@ function renderPlans() {
     html =
       head(week.name, [inFolder?.name, parent?.name].filter(Boolean), plural(plans.length, "plan"), `
         <button class="btn small ghost" data-action="new-plan" data-group="${week.id}">+ Plan</button>
+        <button class="btn small ghost" data-action="copy-group" data-id="${week.id}">Duplicate</button>
         ${editTools(week)}`) +
       (plans.map(planCardHtml).join("") || empty("No plans in this week yet."));
   } else if (block) {
@@ -1823,6 +1839,7 @@ function renderPlans() {
     html =
       head(block.name, inFolder ? [inFolder.name] : [], plural(blockWeeks.length, "week"), `
         <button class="btn small ghost" data-action="new-week" data-parent="${block.id}">+ Week</button>
+        <button class="btn small ghost" data-action="copy-group" data-id="${block.id}">Duplicate</button>
         ${editTools(block)}`) +
       (blockWeeks.map(weekRow).join("") || empty("No weeks in this block yet."));
   } else if (folder) {
@@ -1891,12 +1908,12 @@ function planCardHtml(p) {
             ${exercises ? `<ol class="plan-exercises">${exercises}</ol>` : '<p class="muted">No exercises yet.</p>'}
           </details>
           ${p.notes ? `<p class="muted">${esc(p.notes)}</p>` : ""}
-          <div class="row${completed ? " build-only" : ""}" style="margin-top:12px">
+          <div class="row wrap${completed ? " build-only" : ""}" style="margin-top:12px">
             ${completed ? "" : `<button class="btn small ghost build-only" data-action="edit-plan" data-id="${p.id}">Edit</button>`}
+            <button class="btn small ghost build-only" data-action="move-plan" data-id="${p.id}">Move</button>
+            <button class="btn small ghost build-only" data-action="copy-plan" data-id="${p.id}">Copy</button>
             <button class="btn small danger build-only" data-action="del-plan" data-id="${p.id}">Delete</button>
-            ${completed
-              ? `<button class="btn small ghost build-only" style="margin-left:auto" data-action="copy-plan" data-id="${p.id}">Copy</button>`
-              : `<button class="btn small view-only" style="margin-left:auto" data-action="start-plan" data-id="${p.id}">Start</button>`}
+            ${completed ? "" : `<button class="btn small view-only" style="margin-left:auto" data-action="start-plan" data-id="${p.id}">Start</button>`}
           </div>
         </div>`;
 }
@@ -2059,6 +2076,35 @@ function openGroupSheet(
   );
   $("#group-name").select();
 }
+
+/** Where a duplicated week goes: a folder (or none), then a block in it.
+ * Starts on `block`'s own folder and block. */
+function copyWeekPlaceHtml(block) {
+  const folder = block?.folder_id ?? null;
+  return `
+    ${state.folders.length ? `<div><label for="copy-folder">Folder</label>
+      <select id="copy-folder"><option value="">No folder</option>${state.folders
+        .map((f) => `<option value="${f.id}"${f.id === folder ? " selected" : ""}>${esc(f.name)}</option>`)
+        .join("")}</select></div>` : ""}
+    <div><label for="copy-block">Block</label>
+      <select id="copy-block">${blockOptionsHtml(folder, block?.id)}</select></div>`;
+}
+
+function blockOptionsHtml(folderId, selected) {
+  const blocks = state.groups.filter((g) => g.parent_id == null && (g.folder_id ?? null) === folderId);
+  return blocks.length
+    ? blocks
+        .map((b) => `<option value="${b.id}"${b.id === selected ? " selected" : ""}>${esc(b.name)}</option>`)
+        .join("")
+    : '<option value="">No blocks in this folder</option>';
+}
+
+// Picking a folder for a duplicated week lists that folder's blocks.
+document.addEventListener("change", (ev) => {
+  if (ev.target.id !== "copy-folder") return;
+  const folder = ev.target.value ? Number(ev.target.value) : null;
+  $("#copy-block").innerHTML = blockOptionsHtml(folder, null);
+});
 
 /** Which folder a block sits in; nothing to pick until a folder exists. */
 function folderSelectHtml(folderId) {
@@ -2757,8 +2803,71 @@ const actions = {
     openPlanEditor(await api(`/plans/${el.dataset.id}`));
   },
 
-  // A copy to do a completed plan again: same exercises, a new name, and by
-  // default the same week.
+  // Move a plan to another week or folder (or out of both).
+  "move-plan"(el) {
+    const plan = state.plans.find((p) => p.id === Number(el.dataset.id));
+    if (!plan) return;
+    const place = placeSelectHtml(plan.group_id, plan.folder_id);
+    if (!place) return toast("Make a folder or block first, to move plans into");
+    openSheet(
+      `Move ${plan.name}`,
+      place,
+      `<button class="btn good" data-action="move-plan-save" data-id="${plan.id}">Move</button>`,
+    );
+  },
+
+  async "move-plan-save"(el) {
+    const [kind, id] = [$("#draft-group").value[0], Number($("#draft-group").value.slice(1))];
+    await api(`/plans/${el.dataset.id}/place`, {
+      method: "PUT",
+      body: { group_id: kind === "w" ? id : null, folder_id: kind === "f" ? id : null },
+    });
+    closeSheet();
+    toast("Plan moved");
+    refresh();
+  },
+
+  // Duplicate a block (asking which folder) or a week (asking which folder,
+  // then which block), with everything in it.
+  "copy-group"(el) {
+    const group = state.groups.find((g) => g.id === Number(el.dataset.id));
+    if (!group) return;
+    const isBlock = group.parent_id == null;
+    const parent = isBlock ? null : state.groups.find((g) => g.id === group.parent_id);
+    const next = /^(.*?)(\d+)$/.exec(group.name);
+    openGroupSheet(
+      isBlock ? "Duplicate block" : "Duplicate week",
+      next ? `${next[1]}${Number(next[2]) + 1}` : `${group.name} (copy)`,
+      `data-id="${group.id}"`,
+      {
+        action: "group-copy",
+        extra: `<div class="stack" style="margin-top:12px">
+          ${isBlock ? folderSelectHtml(group.folder_id ?? null) : copyWeekPlaceHtml(parent)}
+          <p class="muted">Copies ${isBlock ? "every week and plan" : "every plan"} in it. Logged workouts stay with the original.</p></div>`,
+      },
+    );
+  },
+
+  async "group-copy"(el) {
+    const name = $("#group-name").value.trim();
+    if (!name) return toast("Give it a name");
+    const group = state.groups.find((g) => g.id === Number(el.dataset.id));
+    if (!group) return closeSheet();
+    const body = { name };
+    if (group.parent_id == null) {
+      body.folder_id = $("#group-folder")?.value ? Number($("#group-folder").value) : null;
+    } else {
+      body.parent_id = Number($("#copy-block").value);
+      if (!body.parent_id) return toast("Pick a block to put it in");
+    }
+    await api(`/groups/${group.id}/copy`, { method: "POST", body });
+    closeSheet();
+    toast(`Made ${name}`);
+    refresh();
+  },
+
+  // A copy to do a plan again (or build from it): same exercises, a new name,
+  // and by default the same week.
   "copy-plan"(el) {
     const plan = state.plans.find((p) => p.id === Number(el.dataset.id));
     if (!plan) return;
