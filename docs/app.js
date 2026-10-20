@@ -1849,12 +1849,6 @@ function renderPlans() {
         <button class="btn small ghost" data-action="new-plan" data-group="${week.id}">+ Plan</button>
         <button class="btn small ghost" data-action="copy-group" data-id="${week.id}">Duplicate</button>
         ${editTools(week)}`) +
-      (week.done_at
-        ? `<div class="spread week-done">
-            <span>Week done <span class="muted">&middot; ${esc(dayLabel(week.done_at))}</span></span>
-            <button class="btn small ghost" data-action="week-done" data-id="${week.id}" data-done="">Not done</button>
-          </div>`
-        : `<button class="btn ghost" data-action="week-done" data-id="${week.id}" data-done="1">Mark week done</button>`) +
       (plans.map(planCardHtml).join("") || empty("No plans in this week yet."));
   } else if (block) {
     const inFolder = state.folders.find((f) => f.id === block.folder_id);
@@ -1897,6 +1891,15 @@ function renderPlans() {
   // The page's + New buttons are for the top level only.
   $("#view-plans").classList.toggle("in-dir", !!(week || block || folder));
   $("#plan-list").innerHTML = html;
+  // In a week, Mark week done sits at the foot, just above Import plans.
+  $("#week-foot").innerHTML = !week
+    ? ""
+    : week.done_at
+      ? `<div class="spread week-done">
+          <span>Week done <span class="muted">&middot; ${esc(dayLabel(week.done_at))}</span></span>
+          <button class="btn small ghost" data-action="week-done" data-id="${week.id}" data-done="">Not done</button>
+        </div>`
+      : `<button class="btn ghost" data-action="week-done" data-id="${week.id}" data-done="1">Mark week done</button>`;
 }
 
 /** A plan card: its title drops down to show the exercises (open ones are kept
