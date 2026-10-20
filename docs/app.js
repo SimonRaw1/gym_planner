@@ -3338,6 +3338,7 @@ async function finishPlansImport(mode) {
   const data = await localData();
   const { added, updated, skipped, groups } = importPlans(data, parsed, mode);
   await writeLocalData(data);
+  state.exercises = await api("/exercises"); // the import may have made new ones
   closeSheet();
   const done = [
     added && `added ${plural(added, "new plan")}`,
