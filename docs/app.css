@@ -405,6 +405,20 @@ body::before {
   text-align: left;
   cursor: pointer;
 }
+/* A week marked done, like a completed plan. */
+.dir-row.week.done {
+  border-color: var(--accent);
+}
+.dir-row.week.done .pill {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.week-done {
+  padding: 10px 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+}
 .dir-row.folder {
   border-left: 3px solid var(--accent-dim);
 }

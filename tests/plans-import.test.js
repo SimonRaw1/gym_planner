@@ -744,3 +744,23 @@ test("a plan can sit straight in a block, travel in a plans file, and move up wh
   const peak2 = data.groups.find((g) => g.name === "Peak 2");
   assert.deepEqual(data.plans.filter((p) => p.group_id === peak2.id).map((p) => p.name).sort(), ["Heavy singles", "Testing day"]);
 });
+
+test("a week can be marked done and back, and its copies start not done", async () => {
+  const app = await phone();
+  await addBlock(app, "Peak", { "Week 1": ["Heavy"] });
+  let data = plain(await app.run("localData()"));
+  const week = data.groups.find((g) => g.parent_id != null);
+  const block = data.groups.find((g) => g.parent_id == null);
+  await put(app, `/groups/${week.id}/done`, { done: true });
+  data = plain(await app.run("localData()"));
+  assert.match(data.groups.find((g) => g.id === week.id).done_at, /^\d{4}-/);
+
+  await post(app, `/groups/${week.id}/copy`, { name: "Week 2", parent_id: block.id });
+  data = plain(await app.run("localData()"));
+  assert.equal(data.groups.find((g) => g.name === "Week 2").done_at, undefined);
+
+  await put(app, `/groups/${week.id}/done`, { done: false });
+  data = plain(await app.run("localData()"));
+  assert.equal(data.groups.find((g) => g.id === week.id).done_at, undefined);
+  await assert.rejects(put(app, `/groups/${block.id}/done`, { done: true }), /Only weeks/);
+});

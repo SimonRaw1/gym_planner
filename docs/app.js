@@ -379,6 +379,7 @@ function copyPlan(data, plan, changes) {
 function copyWeek(data, week, changes) {
   const copy = { ...week, id: data.nextIds.group++, uid: newUid(), ...changes };
   if (copy.position === undefined) delete copy.position;
+  delete copy.done_at; // a fresh copy hasn't been done yet
   data.groups.push(copy);
   data.plans
     .filter((p) => p.group_id === week.id)
@@ -536,6 +537,13 @@ async function api(path, options = {}) {
     if (!parent) group.folder_id = folderId(data, body.folder_id);
     data.groups.push(group);
     result = group;
+  } else if (match(/^\/groups\/(\d+)\/done$/) && method === "PUT") {
+    // A week marked done (or not): done_at is when, so it shows as finished.
+    const week = findGroup(data, match(/^\/groups\/(\d+)\/done$/)[1]);
+    if (week.parent_id == null) throw new Error("Only weeks can be marked done");
+    if (body.done) week.done_at = nowTs();
+    else delete week.done_at;
+    result = week;
   } else if (match(/^\/groups\/(\d+)$/) && method === "PUT") {
     const group = findGroup(data, match(/^\/groups\/(\d+)$/)[1]);
     group.name = body.name.trim();
@@ -1790,8 +1798,8 @@ function renderPlans() {
 
   /* A folder, block or week to tap into. `drop` makes it a place to drop a
    * held plan or block; `move` lets it be held and dragged into order. */
-  const row = (kind, item, count, { drop = "", move = "" } = {}) => `
-    <button type="button" class="card dir-row ${kind}" data-action="open-dir" data-to="${kind}:${item.id}"${drop ? ` data-drop="${drop}"` : ""}${move ? ` data-move="${move}" data-order="${move}"` : ""}>
+  const row = (kind, item, count, { drop = "", move = "", done = false } = {}) => `
+    <button type="button" class="card dir-row ${kind}${done ? " done" : ""}" data-action="open-dir" data-to="${kind}:${item.id}"${drop ? ` data-drop="${drop}"` : ""}${move ? ` data-move="${move}" data-order="${move}"` : ""}>
       <span class="grow group-name">${esc(item.name)}</span>
       <span class="pill">${count}</span>
       <span class="chev" aria-hidden="true"></span>
@@ -1800,12 +1808,17 @@ function renderPlans() {
     row("folder", f, plural(folderPlanCount(f), "plan"), { drop: `folder:${f.id}`, move: `folder:${f.id}` });
   const blockRow = (b) =>
     row("block", b, plural(weeksOf(b.id).length, "week"), { drop: `block:${b.id}`, move: `block:${b.id}` });
+  // A week marked done is outlined like a completed plan, so the week
+  // you're on is the first one that isn't.
   const weekRow = (w) => {
     const plans = plansInWeek(w.id);
     const done = plans.filter((p) => p.completed_at).length;
-    return row("week", w, done ? `${done}/${plans.length} done` : plural(plans.length, "plan"), {
-      drop: `week:${w.id}`,
-    });
+    const count = w.done_at
+      ? "Done"
+      : done
+        ? `${done}/${plans.length} done`
+        : plural(plans.length, "plan");
+    return row("week", w, count, { drop: `week:${w.id}`, done: !!w.done_at });
   };
 
   // The opened folder, block or week: back, where it sits, and its tools.
@@ -1836,6 +1849,12 @@ function renderPlans() {
         <button class="btn small ghost" data-action="new-plan" data-group="${week.id}">+ Plan</button>
         <button class="btn small ghost" data-action="copy-group" data-id="${week.id}">Duplicate</button>
         ${editTools(week)}`) +
+      (week.done_at
+        ? `<div class="spread week-done">
+            <span>Week done <span class="muted">&middot; ${esc(dayLabel(week.done_at))}</span></span>
+            <button class="btn small ghost" data-action="week-done" data-id="${week.id}" data-done="">Not done</button>
+          </div>`
+        : `<button class="btn ghost" data-action="week-done" data-id="${week.id}" data-done="1">Mark week done</button>`) +
       (plans.map(planCardHtml).join("") || empty("No plans in this week yet."));
   } else if (block) {
     const inFolder = state.folders.find((f) => f.id === block.folder_id);
@@ -3160,6 +3179,15 @@ const actions = {
     const folder = el.dataset.folder ? Number(el.dataset.folder) : null;
     closeSheet();
     await exportPlansFile(data, folder);
+  },
+
+  async "week-done"(el) {
+    const done = !!el.dataset.done;
+    await api(`/groups/${el.dataset.id}/done`, { method: "PUT", body: { done } });
+    buzz(15);
+    toast(done ? "Week done" : "Week marked not done");
+    if (done) return navigate(currentStack().slice(0, -1)); // back to the block's weeks
+    refresh();
   },
 
   "open-dir"(el) {
