@@ -5,7 +5,7 @@
  * new files and the one after that runs them.
  */
 
-const CACHE = "gym-planner-v78";
+const CACHE = "gym-planner-v79";
 const SHELL = [
   "./",
   "index.html",

@@ -1689,7 +1689,9 @@ function renderActiveSession() {
             <div class="target">${target} &middot; rest ${item.rest_seconds}s</div>
             ${
               prev
-                ? `<div class="prev">Last: ${prev.reps} &times; ${fmtWeight(prev.weight)} ${unitLabel()}
+                ? `<div class="prev">Last: ${prev.reps} &times; ${fmtWeight(prev.weight)} ${unitLabel()}${
+                    prev.rpe != null && prev.rpe !== "" ? ` @ RPE ${prev.rpe}` : ""
+                  }
               (${esc(dayLabel(prev.started_at))})</div>`
                 : ""
             }
