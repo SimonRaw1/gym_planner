@@ -47,6 +47,10 @@ stays on their own phone, with no accounts.
 - A plans file lists its plans and, under `structure`, its folders, blocks and
   weeks (so empty ones travel too). Both are optional on import, so files
   from before `structure` still work; keep it that way.
+- A week can have dates (`starts`/`ends`, local "YYYY-MM-DD"); they travel in
+  plans files on `structure.weeks`, and the week holding today is highlighted.
+  One folder can be followed (`following` on the folder, kept on the phone,
+  not exported): Select plan on Train opens its current week.
 - Weights are stored in kg. The kg/lb setting (localStorage pref `unit`) only
   changes display and entry: show weights with fmtWeight() and unitLabel(), and
   convert typed weights with toKg().

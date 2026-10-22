@@ -380,6 +380,8 @@ function copyWeek(data, week, changes) {
   const copy = { ...week, id: data.nextIds.group++, uid: newUid(), ...changes };
   if (copy.position === undefined) delete copy.position;
   delete copy.done_at; // a fresh copy hasn't been done yet
+  delete copy.starts; // nor been given dates
+  delete copy.ends;
   data.groups.push(copy);
   data.plans
     .filter((p) => p.group_id === week.id)
@@ -398,6 +400,31 @@ function copyBlock(data, block, changes) {
     .filter((p) => p.group_id === block.id)
     .forEach((plan) => copyPlan(data, plan, { group_id: copy.id, folder_id: null }));
   return copy;
+}
+
+/** A folder's weeks (or, for null, the weeks of blocks outside folders) in
+ * the order they're listed: its blocks in order, each block's weeks in order. */
+function weeksInOrder(groups, folderId) {
+  return groups
+    .filter((g) => g.parent_id == null && (g.folder_id ?? null) === folderId)
+    .sort(byOrder)
+    .flatMap((block) => groups.filter((g) => g.parent_id === block.id).sort(byOrder));
+}
+
+/** Where Select plan on Train goes for the followed folder: the week whose
+ * dates hold today, or if that's marked done the next week that isn't; with
+ * no week dated for today, the first week not done. Null when no folder is
+ * followed; `week` (and `block`) null when the folder has no weeks. */
+function followedSpot(folders, groups, today = todayYmd()) {
+  const folder = folders.find((f) => f.following);
+  if (!folder) return null;
+  const weeks = weeksInOrder(groups, folder.id);
+  const now = weeks.findIndex((w) => isCurrentWeek(w, today));
+  const week =
+    (now >= 0 ? weeks.slice(now) : weeks).find((w) => !w.done_at) ||
+    (now >= 0 ? weeks[now] : null);
+  const block = week ? groups.find((g) => g.id === week.parent_id) || null : null;
+  return { folder, block, week: week || null };
 }
 
 function findGroup(data, id) {
@@ -544,6 +571,31 @@ async function api(path, options = {}) {
     if (body.done) week.done_at = nowTs();
     else delete week.done_at;
     result = week;
+  } else if (match(/^\/groups\/(\d+)\/dates$/) && method === "PUT") {
+    // A week's first and last day, or neither. With `fill`, the weeks after
+    // it in its folder follow on back to back, each as long as this one.
+    const week = findGroup(data, match(/^\/groups\/(\d+)\/dates$/)[1]);
+    if (week.parent_id == null) throw new Error("Only weeks have dates");
+    if (!body.starts && !body.ends) {
+      delete week.starts;
+      delete week.ends;
+    } else {
+      if (!isYmd(body.starts) || !isYmd(body.ends)) throw new Error("Pick a start and an end date");
+      if (body.ends < body.starts) throw new Error("The week ends before it starts");
+      week.starts = body.starts;
+      week.ends = body.ends;
+      if (body.fill) {
+        const length = daysBetween(week.starts, week.ends);
+        const block = findGroup(data, week.parent_id);
+        const weeks = weeksInOrder(data.groups, block.folder_id ?? null);
+        let last = week.ends;
+        weeks.slice(weeks.indexOf(week) + 1).forEach((next) => {
+          next.starts = addDays(last, 1);
+          next.ends = last = addDays(next.starts, length);
+        });
+      }
+    }
+    result = week;
   } else if (match(/^\/groups\/(\d+)$/) && method === "PUT") {
     const group = findGroup(data, match(/^\/groups\/(\d+)$/)[1]);
     group.name = body.name.trim();
@@ -588,6 +640,13 @@ async function api(path, options = {}) {
   } else if (match(/^\/folders\/(\d+)$/) && method === "PUT") {
     const folder = findFolder(data, match(/^\/folders\/(\d+)$/)[1]);
     folder.name = body.name.trim();
+    result = folder;
+  } else if (match(/^\/folders\/(\d+)\/follow$/) && method === "PUT") {
+    // The folder you're following, one at a time: Select plan on Train opens
+    // its current week.
+    const folder = findFolder(data, match(/^\/folders\/(\d+)\/follow$/)[1]);
+    data.folders.forEach((f) => delete f.following);
+    if (body.follow) folder.following = true;
     result = folder;
   } else if (match(/^\/folders\/(\d+)\/copy$/) && method === "POST") {
     // A full copy under a new name: blocks, weeks and plans, each with a new
@@ -819,6 +878,42 @@ function dayLabel(ts) {
     day: "numeric",
     month: "short",
   });
+}
+
+/* Week dates are local calendar days, "YYYY-MM-DD", so they compare as text. */
+function ymdDate(ymd) {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function ymdOf(date) {
+  const two = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`;
+}
+
+const isYmd = (value) =>
+  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && ymdOf(ymdDate(value)) === value;
+const todayYmd = (now = new Date()) => ymdOf(now);
+
+function addDays(ymd, days) {
+  const date = ymdDate(ymd);
+  date.setDate(date.getDate() + days);
+  return ymdOf(date);
+}
+
+/** Whole days from `from` to `to` (rounded, so a clock change doesn't count). */
+const daysBetween = (from, to) => Math.round((ymdDate(to) - ymdDate(from)) / 86400000);
+
+/** The week whose dates hold today. */
+const isCurrentWeek = (week, today = todayYmd()) =>
+  !!week.starts && !!week.ends && week.starts <= today && today <= week.ends;
+
+/** "Mon 3 Nov – Sun 9 Nov", or "" for a week without dates. */
+function weekDatesLabel(week) {
+  if (!week.starts || !week.ends) return "";
+  const day = (ymd) =>
+    ymdDate(ymd).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+  return `${day(week.starts)} – ${day(week.ends)}`;
 }
 
 /** Backups older than this are flagged in Settings. */
@@ -1569,7 +1664,19 @@ function renderTrain() {
   if (state.inSession) renderActiveSession();
   else {
     renderCurrentSession();
+    renderFollowing();
   }
+}
+
+/** Under Select plan: the folder you're following and the week it opens. */
+function renderFollowing() {
+  const spot = followedSpot(state.folders, state.groups);
+  const line = $("#following");
+  line.hidden = !spot;
+  if (!spot) return;
+  line.innerHTML = `Following <strong>${esc(spot.folder.name)}</strong>${
+    spot.week ? `<br>${esc(spot.block.name)} › ${esc(spot.week.name)}` : ""
+  }`;
 }
 
 /** How long from `start` to `end` (default now): "52 min", "1 h 5 min". */
@@ -1797,19 +1904,34 @@ function renderPlans() {
   const weeksOf = (blockId) => weeks.filter((w) => w.parent_id === blockId);
   const folderPlanCount = (f) =>
     state.plans.filter((p) => planFolderId(state, p) === f.id).length;
+  // The week whose dates hold today, and the block and folder it's in.
+  const today = todayYmd();
+  const holdsToday = (list) => list.some((w) => isCurrentWeek(w, today));
 
   /* A folder, block or week to tap into. `drop` makes it a place to drop a
-   * held plan or block; `move` lets it be held and dragged into order. */
-  const row = (kind, item, count, { drop = "", move = "", done = false } = {}) => `
-    <button type="button" class="card dir-row ${kind}${done ? " done" : ""}" data-action="open-dir" data-to="${kind}:${item.id}"${drop ? ` data-drop="${drop}"` : ""}${move ? ` data-move="${move}" data-order="${move}"` : ""}>
-      <span class="grow group-name">${esc(item.name)}</span>
+   * held plan or block; `move` lets it be held and dragged into order.
+   * `current` marks the way to this week; `sub` is a line under the name
+   * and `tag` a pill before the count. */
+  const row = (kind, item, count, { drop = "", move = "", done = false, current = false, sub = "", tag = "" } = {}) => `
+    <button type="button" class="card dir-row ${kind}${done ? " done" : ""}${current ? " current" : ""}" data-action="open-dir" data-to="${kind}:${item.id}"${drop ? ` data-drop="${drop}"` : ""}${move ? ` data-move="${move}" data-order="${move}"` : ""}>
+      <span class="grow group-name">${esc(item.name)}${sub ? `<span class="dir-sub">${esc(sub)}</span>` : ""}</span>
+      ${tag ? `<span class="pill tag">${tag}</span>` : ""}
       <span class="pill">${count}</span>
       <span class="chev" aria-hidden="true"></span>
     </button>`;
   const folderRow = (f) =>
-    row("folder", f, plural(folderPlanCount(f), "plan"), { drop: `folder:${f.id}`, move: `folder:${f.id}` });
+    row("folder", f, plural(folderPlanCount(f), "plan"), {
+      drop: `folder:${f.id}`,
+      move: `folder:${f.id}`,
+      current: holdsToday(weeksInOrder(state.groups, f.id)),
+      tag: f.following ? "Following" : "",
+    });
   const blockRow = (b) =>
-    row("block", b, plural(weeksOf(b.id).length, "week"), { drop: `block:${b.id}`, move: `block:${b.id}` });
+    row("block", b, plural(weeksOf(b.id).length, "week"), {
+      drop: `block:${b.id}`,
+      move: `block:${b.id}`,
+      current: holdsToday(weeksOf(b.id)),
+    });
   // A week marked done is outlined like a completed plan, so the week
   // you're on is the first one that isn't.
   const weekRow = (w) => {
@@ -1820,17 +1942,25 @@ function renderPlans() {
       : done
         ? `${done}/${plans.length} done`
         : plural(plans.length, "plan");
-    return row("week", w, count, { drop: `week:${w.id}`, done: !!w.done_at });
+    const current = isCurrentWeek(w, today);
+    return row("week", w, count, {
+      drop: `week:${w.id}`,
+      done: !!w.done_at,
+      current,
+      sub: weekDatesLabel(w),
+      tag: current ? "This week" : "",
+    });
   };
 
   // The opened folder, block or week: back, where it sits, and its tools.
-  const head = (title, crumbs, count, tools) => `
+  const head = (title, crumbs, count, tools, sub = "") => `
     <div class="dir-head">
       <button type="button" class="back-btn" data-action="plans-back" aria-label="Back">
         <span class="chev" aria-hidden="true"></span></button>
       <div class="grow">
         ${crumbs.length ? `<div class="crumbs">${crumbs.map(esc).join(" › ")}</div>` : ""}
         <h2>${esc(title)}</h2>
+        ${sub ? `<div class="dir-sub">${sub}</div>` : ""}
       </div>
       <span class="pill">${count}</span>
     </div>
@@ -1846,11 +1976,16 @@ function renderPlans() {
     const parent = blocks.find((b) => b.id === week.parent_id);
     const inFolder = state.folders.find((f) => f.id === parent?.folder_id);
     const plans = plansInWeek(week.id);
+    const dates = weekDatesLabel(week);
+    const sub = dates
+      ? `${esc(dates)}${isCurrentWeek(week, today) ? ' <span class="pill tag">This week</span>' : ""}`
+      : "";
     html =
       head(week.name, [inFolder?.name, parent?.name].filter(Boolean), plural(plans.length, "plan"), `
         <button class="btn small ghost" data-action="new-plan" data-group="${week.id}">+ Plan</button>
+        <button class="btn small ghost" data-action="week-dates" data-id="${week.id}">Dates</button>
         <button class="btn small ghost" data-action="copy-group" data-id="${week.id}">Duplicate</button>
-        ${editTools(week)}`) +
+        ${editTools(week)}`, sub) +
       (plans.map(planCardHtml).join("") || empty("No plans in this week yet."));
   } else if (block) {
     const inFolder = state.folders.find((f) => f.id === block.folder_id);
@@ -1893,15 +2028,23 @@ function renderPlans() {
   // The page's + New buttons are for the top level only.
   $("#view-plans").classList.toggle("in-dir", !!(week || block || folder));
   $("#plan-list").innerHTML = html;
-  // In a week, Mark week done sits at the foot, just above Import plans.
-  $("#week-foot").innerHTML = !week
-    ? ""
-    : week.done_at
+  // At the foot, just above Import plans: in a week, Mark week done; in a
+  // folder, Follow this plan (Select plan on Train then opens its week).
+  $("#dir-foot").innerHTML = week
+    ? week.done_at
       ? `<div class="spread week-done">
           <span>Week done <span class="muted">&middot; ${esc(dayLabel(week.done_at))}</span></span>
           <button class="btn small ghost" data-action="week-done" data-id="${week.id}" data-done="">Not done</button>
         </div>`
-      : `<button class="btn ghost" data-action="week-done" data-id="${week.id}" data-done="1">Mark week done</button>`;
+      : `<button class="btn ghost" data-action="week-done" data-id="${week.id}" data-done="1">Mark week done</button>`
+    : folder && !block
+      ? folder.following
+        ? `<div class="spread week-done">
+            <span>Following this plan</span>
+            <button class="btn small ghost" data-action="follow-folder" data-id="${folder.id}" data-follow="">Stop</button>
+          </div>`
+        : `<button class="btn ghost" data-action="follow-folder" data-id="${folder.id}" data-follow="1">Follow this plan</button>`
+      : "";
 }
 
 /** A plan card: its title drops down to show the exercises (open ones are kept
@@ -2446,11 +2589,14 @@ async function ensureNoActiveSession() {
 async function refresh() {
   try {
     if (state.view === "train") {
-      const [session, stats] = await Promise.all([
+      const [session, stats, folders, groups] = await Promise.all([
         api("/sessions/active"),
         api("/stats"),
+        api("/folders"),
+        api("/groups"),
       ]);
       state.session = session;
+      [state.folders, state.groups] = [folders, groups];
       renderTrain();
       renderStats(stats);
     } else if (state.view === "plans") {
@@ -2485,8 +2631,17 @@ const actions = {
     navigate([...currentStack(), "session"]);
   },
 
-  "select-plan"() {
-    navigate(["plans"]);
+  // With a folder followed, straight to its week (back steps out through
+  // its block and folder); otherwise the Plans list.
+  async "select-plan"() {
+    const [folders, groups] = await Promise.all([api("/folders"), api("/groups")]);
+    const spot = followedSpot(folders, groups);
+    if (!spot) return navigate(["plans"]);
+    navigate([
+      "plans",
+      `folder:${spot.folder.id}`,
+      ...(spot.week ? [`block:${spot.block.id}`, `week:${spot.week.id}`] : []),
+    ]);
   },
 
   "continue-session"() {
@@ -3195,6 +3350,67 @@ const actions = {
     refresh();
   },
 
+  /* A week's dates. Starts defaults to the day after the week before ends
+   * (or today), and the weeks after it can be dated back to back with it. */
+  "week-dates"(el) {
+    const week = state.groups.find((g) => g.id === Number(el.dataset.id));
+    if (!week) return;
+    const block = state.groups.find((g) => g.id === week.parent_id);
+    const weeks = weeksInOrder(state.groups, block?.folder_id ?? null);
+    const at = weeks.indexOf(week);
+    const before = weeks[at - 1];
+    const after = weeks.length - at - 1;
+    const starts = week.starts || (before?.ends ? addDays(before.ends, 1) : todayYmd());
+    const ends = week.ends || addDays(starts, 6);
+    openSheet(
+      `${week.name} dates`,
+      `<div class="row">
+        <div class="field"><label for="week-starts">Starts</label>
+          <input type="date" id="week-starts" value="${starts}"></div>
+        <div class="field"><label for="week-ends">Ends</label>
+          <input type="date" id="week-ends" value="${ends}" data-length="${daysBetween(starts, ends)}"></div>
+      </div>
+      ${
+        after
+          ? `<label class="check"><input type="checkbox" id="week-fill" checked>
+              Date the ${plural(after, "week")} after it too, back to back</label>`
+          : ""
+      }
+      <p class="muted">The week whose dates hold today is highlighted in Plans.</p>`,
+      `<div class="stack tight">
+        <button class="btn good" data-action="week-dates-save" data-id="${week.id}">Save</button>
+        ${week.starts ? `<button class="btn ghost" data-action="week-dates-clear" data-id="${week.id}">Clear dates</button>` : ""}
+      </div>`,
+    );
+  },
+
+  async "week-dates-save"(el) {
+    const starts = $("#week-starts").value;
+    const ends = $("#week-ends").value;
+    if (!starts || !ends) return toast("Pick a start and an end date");
+    if (ends < starts) return toast("The week ends before it starts");
+    const fill = !!$("#week-fill")?.checked;
+    await api(`/groups/${el.dataset.id}/dates`, { method: "PUT", body: { starts, ends, fill } });
+    closeSheet();
+    toast(fill ? "Dates set for this week and the ones after" : "Week dates set");
+    refresh();
+  },
+
+  async "week-dates-clear"(el) {
+    await api(`/groups/${el.dataset.id}/dates`, { method: "PUT", body: { starts: null, ends: null } });
+    closeSheet();
+    toast("Dates cleared");
+    refresh();
+  },
+
+  async "follow-folder"(el) {
+    const follow = !!el.dataset.follow;
+    await api(`/folders/${el.dataset.id}/follow`, { method: "PUT", body: { follow } });
+    buzz(15);
+    toast(follow ? "Following. Select plan on Train opens this week" : "Not following this plan");
+    refresh();
+  },
+
   "open-dir"(el) {
     navigate([...currentStack(), el.dataset.to]);
   },
@@ -3525,7 +3741,8 @@ function ensureUids(data) {
  *
  * `structure` lists the folders, blocks and weeks themselves (in order), so
  * ones with no plans in yet travel too: blocks carry their folder and weeks
- * their block, by name and uid. Files from before it simply lack it. */
+ * their block, by name and uid, and a dated week its `starts` and `ends`.
+ * Files from before it simply lack it. */
 function plansToExport(data, stamp, onlyFolder = null) {
   const groups = Array.isArray(data.groups) ? data.groups : [];
   const folders = Array.isArray(data.folders) ? data.folders : [];
@@ -3562,6 +3779,7 @@ function plansToExport(data, stamp, onlyFolder = null) {
         name: w.name,
         block: b.name,
         block_uid: b.uid || null,
+        ...(w.starts && w.ends ? { starts: w.starts, ends: w.ends } : {}),
       })),
     ),
   };
@@ -3734,7 +3952,14 @@ function importPlans(data, imported, mode = "add") {
   list("weeks").forEach((w) => {
     const blockId =
       blockIds.get(`uid:${w?.block_uid}`) ?? blockIds.get(`name:${String(w?.block || "").trim().toLowerCase()}`);
-    if (blockId != null) importedGroupId(w.name, w.uid, blockId, null);
+    if (blockId == null) return;
+    const id = importedGroupId(w.name, w.uid, blockId, null);
+    // A week's dates come with it; a week the file has undated keeps its own.
+    const week = data.groups.find((g) => g.id === id);
+    if (week && isYmd(w.starts) && isYmd(w.ends) && w.starts <= w.ends) {
+      week.starts = w.starts;
+      week.ends = w.ends;
+    }
   });
   /** Plans side by side: the same week, or (outside weeks) the same folder. */
   const sameSpot = (p, groupId, folderId) =>
@@ -3896,6 +4121,16 @@ document.addEventListener(
   },
   true,
 );
+
+// In a week's dates, a new start moves the end with it (keeping the week's
+// length); a new end sets that length.
+document.addEventListener("change", (ev) => {
+  const ends = $("#week-ends");
+  if (!ends || !isYmd(ev.target.value)) return;
+  if (ev.target.id === "week-starts") ends.value = addDays(ev.target.value, Number(ends.dataset.length) || 6);
+  else if (ev.target.id === "week-ends" && isYmd($("#week-starts").value))
+    ends.dataset.length = Math.max(0, daysBetween($("#week-starts").value, ends.value));
+});
 
 $("#hide-warmups").addEventListener("change", (ev) => {
   state.hideWarmups = ev.target.checked;

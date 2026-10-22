@@ -422,6 +422,39 @@ body::before {
 .dir-row.folder {
   border-left: 3px solid var(--accent-dim);
 }
+/* The week whose dates hold today stands out; the block and folder it's in
+ * get an accent edge, so the way to it shows from the top. */
+.dir-row.week.current {
+  border: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.dir-row.block.current,
+.dir-row.folder.current {
+  border-left: 3px solid var(--accent);
+}
+.dir-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+.dir-head .dir-sub .pill.tag {
+  margin-left: 6px;
+}
+.pill.tag {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 650;
+  white-space: nowrap;
+}
+.following-line {
+  margin: 12px 0 0;
+  font-size: 0.85rem;
+  text-align: center;
+}
 .dir-row .chev {
   margin-right: 4px;
 }

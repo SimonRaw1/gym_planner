@@ -89,6 +89,9 @@ function nextName(name) {
   return m ? `${m[1]}${Number(m[2]) + 1}` : `${name} copy`;
 }
 
+/** A week's dates in a plans file: "YYYY-MM-DD". */
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
 function copyPlan(plan, place) {
   return { ...structuredClone(plan), uid: newUid(), place };
 }
@@ -714,7 +717,13 @@ function plansFile() {
     })),
     weeks: state.weeks.map((w) => {
       const block = state.blocks.find((b) => b.uid === w.block);
-      return { uid: w.uid, name: w.name, block: block?.name ?? null, block_uid: w.block };
+      return {
+        uid: w.uid,
+        name: w.name,
+        block: block?.name ?? null,
+        block_uid: w.block,
+        ...(w.starts && w.ends ? { starts: w.starts, ends: w.ends } : {}),
+      };
     }),
   };
   return { kind: "gym-planner-plans", version: 1, exported_at: new Date().toISOString(), structure, plans };
@@ -759,7 +768,10 @@ function openPlansFile(file) {
   });
   listed("weeks").forEach((w) => {
     const block = fileBlocks.get(`uid:${w?.block_uid}`) || fileBlocks.get(`name:${w?.block}`);
-    if (block && w.name) findOrAdd(next.weeks, w.uid, String(w.name), { block: block.uid });
+    if (!block || !w.name) return;
+    const week = findOrAdd(next.weeks, w.uid, String(w.name), { block: block.uid });
+    // Dates set on the phone ride along untouched, so exporting keeps them.
+    if (DAY.test(w.starts) && DAY.test(w.ends)) Object.assign(week, { starts: w.starts, ends: w.ends });
   });
   file.plans.forEach((p) => {
     const folder = p.folder ? findOrAdd(next.folders, p.folder_uid, String(p.folder), {}) : null;
