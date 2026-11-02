@@ -26,6 +26,7 @@ const state = {
   pendingPlans: null, // parsed plans file waiting for Add new / Overwrite
   rest: null, // { until: epochMs, timer: intervalId }
   retype: {}, // exercise id -> a set just deleted, to log again as it was
+  warmBox: {}, // exercise id -> the warm-up box as it was when a set was deleted
 };
 
 /* Small display preferences live in localStorage, apart from the workout
@@ -1843,7 +1844,7 @@ function renderActiveSession() {
             data-f="rpe" placeholder="RPE" value="${fillRpe}">
           <button class="btn" data-action="log" data-ex="${item.exercise_id}">Log</button>
           <label class="check">
-            <input type="checkbox" data-f="warmup"${last?.warmup ? " checked" : ""}>
+            <input type="checkbox" data-f="warmup"${(state.warmBox[item.exercise_id]?.session === s.id ? state.warmBox[item.exercise_id].on : last?.warmup) ? " checked" : ""}>
             Warm up
           </label>
         </div>
@@ -2804,6 +2805,7 @@ const actions = {
     }
     const exerciseId = Number(el.dataset.ex);
     delete state.retype[exerciseId];
+    delete state.warmBox[exerciseId];
     const done = state.session.sets.filter(
       (x) => x.exercise_id === exerciseId,
     ).length;
@@ -2846,6 +2848,11 @@ const actions = {
 
   async "del-set"(el) {
     const set = state.session.sets.find((x) => x.id === Number(el.dataset.id));
+    // Deleting a set never changes a warm-up box: each stays as it is now.
+    document.querySelectorAll('.logform [data-action="log"]').forEach((btn) => {
+      const box = btn.closest(".logform").querySelector('[data-f="warmup"]');
+      if (box) state.warmBox[btn.dataset.ex] = { session: state.session.id, on: box.checked };
+    });
     await api(`/sets/${el.dataset.id}`, { method: "DELETE" });
     if (set)
       state.retype[set.exercise_id] = { session: state.session.id, weight: set.weight, reps: set.reps, rpe: set.rpe };
