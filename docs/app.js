@@ -25,6 +25,7 @@ const state = {
   draft: null, // plan being edited in the sheet
   pendingPlans: null, // parsed plans file waiting for Add new / Overwrite
   rest: null, // { until: epochMs, timer: intervalId }
+  retype: {}, // exercise id -> a set just deleted, to log again as it was
 };
 
 /* Small display preferences live in localStorage, apart from the workout
@@ -1778,14 +1779,21 @@ function renderActiveSession() {
           : "no target";
 
         const last = sets[sets.length - 1];
-        const fillWeight = last
-          ? fmtWeight(last.weight)
-          : prev
-            ? fmtWeight(prev.weight)
-            : "";
-        const fillReps =
-          item.target_reps || (last ? last.reps : prev ? prev.reps : "");
-        const fillRpe = last?.rpe ?? item.target_rpe ?? prev?.rpe ?? "";
+        // A set just deleted (say, logged as a warm-up by mistake) keeps its
+        // values in the form, ready to log again.
+        const redo = state.retype[item.exercise_id];
+        const again = redo?.session === s.id ? redo : null;
+        const fillWeight = again
+          ? fmtWeight(again.weight)
+          : last
+            ? fmtWeight(last.weight)
+            : prev
+              ? fmtWeight(prev.weight)
+              : "";
+        const fillReps = again
+          ? again.reps
+          : item.target_reps || (last ? last.reps : prev ? prev.reps : "");
+        const fillRpe = again ? (again.rpe ?? "") : (last?.rpe ?? item.target_rpe ?? prev?.rpe ?? "");
 
         return `
       <article class="exercise${isDone ? " finished" : ""}${isOpen ? " open" : ""}" data-drag-item>
@@ -2795,6 +2803,7 @@ const actions = {
       return toast("RPE must be between 1 and 10");
     }
     const exerciseId = Number(el.dataset.ex);
+    delete state.retype[exerciseId];
     const done = state.session.sets.filter(
       (x) => x.exercise_id === exerciseId,
     ).length;
@@ -2836,7 +2845,10 @@ const actions = {
   },
 
   async "del-set"(el) {
+    const set = state.session.sets.find((x) => x.id === Number(el.dataset.id));
     await api(`/sets/${el.dataset.id}`, { method: "DELETE" });
+    if (set)
+      state.retype[set.exercise_id] = { session: state.session.id, weight: set.weight, reps: set.reps, rpe: set.rpe };
     state.session = await api(`/sessions/${state.session.id}`);
     renderActiveSession();
   },
